@@ -1,5 +1,5 @@
-import { CLUES, ITEMS, ITEM_ORDER, PASSCODE, VIEWPORT, WORLD } from "./content";
-import type { DeathInfo, Direction, GameHooks, ItemId, ViewState } from "./types";
+import { ACHIEVEMENTS, CLUES, DISCOVERIES, ITEMS, ITEM_ORDER, PASSCODE, VIEWPORT, WORLD } from "./content";
+import type { DeathInfo, Direction, GameHooks, ItemId, TaskView, ViewState } from "./types";
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Point = { x: number; y: number };
@@ -9,6 +9,9 @@ type GridCell = { col: number; row: number };
 
 interface PersistedState {
   clues: number[];
+  discoveries: string[];
+  achievements: string[];
+  sideActions: string[];
   deaths: number;
   completed: boolean;
   dangerAssist: boolean;
@@ -29,6 +32,11 @@ const BUILDINGS: Rect[] = [
 const MOUND: Rect = { x: 990, y: 402, w: 142, h: 66 };
 const WIND_ZONE: Rect = { x: 720, y: 250, w: 330, h: 112 };
 const BRANCH_ZONE: Rect = { x: 1058, y: 535, w: 126, h: 104 };
+const SCENERY_COLLIDERS: Rect[] = [
+  { x: 736, y: 712, w: 70, h: 45 },
+  { x: 784, y: 816, w: 62, h: 44 },
+  { x: 1204, y: 378, w: 124, h: 40 },
+];
 
 const INTERACTION_POINTS: Record<string, Point> = {
   mill: { x: 414, y: 728 },
@@ -39,6 +47,31 @@ const INTERACTION_POINTS: Record<string, Point> = {
   mound: { x: 1054, y: 477 },
   flowers: { x: 1172, y: 336 },
   cottage: { x: 1398, y: 252 },
+  waystone: { x: 692, y: 620 },
+  bench: { x: 770, y: 730 },
+  spring: { x: 815, y: 845 },
+  hive: { x: 1250, y: 402 },
+  dandelion: { x: 382, y: 858 },
+  frog: { x: 675, y: 650 },
+  snail: { x: 900, y: 230 },
+  butterfly: { x: 1185, y: 465 },
+  cloudview: { x: 1480, y: 300 },
+};
+
+type InteractionKind = "story" | "utility" | "optional" | "discovery";
+
+const INTERACTION_KINDS: Record<string, InteractionKind> = {
+  mill: "story", trowel: "utility", postcard: "story", picnic: "story", windpost: "utility",
+  mound: "utility", flowers: "story", cottage: "story", waystone: "optional", bench: "optional",
+  spring: "utility", hive: "optional", dandelion: "discovery", frog: "discovery", snail: "discovery",
+  butterfly: "discovery", cloudview: "discovery",
+};
+
+const SIGNAL_COLORS: Record<InteractionKind, string> = {
+  story: "#fff1a0",
+  utility: "#8ee9f2",
+  optional: "#a8f0b5",
+  discovery: "#ffacd0",
 };
 
 const TRAIL_POINTS: Point[] = [
@@ -86,6 +119,9 @@ export class Game {
   private selectedSlot = 0;
   private inventory = new Set<ItemId>(["journal"]);
   private clues = new Set<number>();
+  private discoveries = new Set<string>();
+  private achievements = new Set<string>();
+  private sideActions = new Set<string>();
   private deaths = 0;
   private completed = false;
   private dangerAssist = false;
@@ -118,6 +154,9 @@ export class Game {
     this.ctx.imageSmoothingEnabled = false;
     const persisted = this.load();
     this.clues = new Set(persisted.clues);
+    this.discoveries = new Set(persisted.discoveries);
+    this.achievements = new Set(persisted.achievements);
+    this.sideActions = new Set(persisted.sideActions);
     this.deaths = persisted.deaths;
     this.completed = persisted.completed;
     this.dangerAssist = persisted.dangerAssist;
@@ -213,7 +252,7 @@ export class Game {
         if (this.windTied) this.hooks.onMessage("丝带清楚地显示着阵风方向。");
         else if (this.inventory.has("ribbon")) {
           this.windTied = true;
-          this.hooks.onMessage("把丝带系好了。风来之前，它会先绷直。");
+          this.hooks.onMessage(`把丝带系好了。风来之前，它会先绷直。${this.awardAchievements("wind_reader")}`);
         } else this.hooks.onMessage("光秃秃的风向杆很难看清。也许可以系点醒目的东西。");
         break;
       case "mound":
@@ -227,9 +266,9 @@ export class Game {
         if (this.flowersWatered) this.hooks.onMessage("小花重新抬起头，钥匙在叶片间闪光。");
         else if (this.inventory.has("water")) {
           this.flowersWatered = true;
+          this.inventory.delete("water");
           this.addItem("key");
-          this.hooks.onMessage("把最后一点水留给了小花。获得黄铜钥匙。");
-          this.save();
+          this.hooks.onMessage(`把最后一点水留给了小花。获得黄铜钥匙。${this.awardAchievements("kindness")}`);
         } else this.hooks.onMessage("花瓣已经卷起来了。它们需要一点干净的水。");
         break;
       case "cottage":
@@ -248,7 +287,34 @@ export class Game {
         this.paused = true;
         this.hooks.onCodeRequest();
         break;
+      case "waystone":
+        this.sideActions.add("waystone");
+        this.hooks.onMessage(`旧路标：← 水磨坊 · ↑ 风口 · → 花田。${this.awardAchievements("wayfinder")}`);
+        break;
+      case "bench":
+        this.sideActions.add("bench");
+        this.hooks.onMessage(`你坐了一会儿。河水走得很快，但下午没有。${this.awardAchievements("slow_afternoon")}`);
+        break;
+      case "spring":
+        if (this.inventory.has("water")) this.hooks.onMessage("水壶已经装满了。泉水很凉，留一点给后来的人。");
+        else {
+          this.addItem("water");
+          this.hooks.onMessage("在石泉装了一壶干净的水。这里是水壶的另一种补给方式。");
+        }
+        break;
+      case "hive":
+        if (!this.flowersWatered) this.hooks.onMessage("蜂箱很安静。蜜蜂在等花田重新有水。");
+        else {
+          this.sideActions.add("hive");
+          this.hooks.onMessage(`花开后，蜜蜂终于沿着金色小路飞回蜂箱。${this.awardAchievements("hive_keeper")}`);
+        }
+        break;
+      default:
+        if (DISCOVERIES.some((discovery) => discovery.id === id)) this.observeDiscovery(id);
+        break;
     }
+    this.refreshProgressAchievements();
+    this.save();
     this.emitView();
   }
 
@@ -258,6 +324,8 @@ export class Game {
       return false;
     }
     this.completed = true;
+    this.awardAchievements("remembered_day");
+    if (["waystone", "bench", "hive"].every((task) => this.sideActions.has(task))) this.awardAchievements("unhurried_day");
     this.save();
     this.hooks.onComplete();
     this.emitView();
@@ -314,6 +382,9 @@ export class Game {
       inventory: ITEM_ORDER.filter((item) => this.inventory.has(item)),
       selectedSlot: this.selectedSlot,
       clues: [...this.clues].sort(),
+      tasks: this.taskViews(),
+      discoveries: [...this.discoveries],
+      achievements: [...this.achievements],
       deaths: this.deaths,
       completed: this.completed,
       dangerAssist: this.dangerAssist,
@@ -616,6 +687,8 @@ export class Game {
   private isBlocked(player: Rect) {
     if (player.x < 20 || player.y < 20 || player.x + player.w > WORLD.width - 20 || player.y + player.h > WORLD.height - 20) return true;
     if (BUILDINGS.some((rect) => overlaps(player, rect))) return true;
+    if (SCENERY_COLLIDERS.some((rect) => overlaps(player, rect))) return true;
+    if (this.trees.some((tree) => overlaps(player, { x: tree.x - 14, y: tree.y + 34, w: 28, h: 58 }))) return true;
     if (!this.moundCleared && overlaps(player, MOUND)) return true;
 
     const center = { x: player.x + player.w / 2, y: player.y + player.h / 2 };
@@ -696,8 +769,92 @@ export class Game {
       mound: this.moundCleared ? "点击 / E 查看清开的路" : "点击 / E 清理土堆",
       flowers: "点击 / E 照料枯萎的小花",
       cottage: this.clues.has(3) ? "点击 / E 尝试打开小屋" : "点击 / E 调查山顶门牌",
+      waystone: this.sideActions.has("waystone") ? "点击 / E 重读旧路标" : "点击 / E 读懂旧路标",
+      bench: this.sideActions.has("bench") ? "点击 / E 再坐一会儿" : "点击 / E 在河边长椅休息",
+      spring: this.inventory.has("water") ? "点击 / E 看看清泉" : "点击 / E 装一壶泉水",
+      hive: this.sideActions.has("hive") ? "点击 / E 听蜂箱的嗡鸣" : "点击 / E 查看安静的蜂箱",
+      dandelion: this.discoveryLabel("dandelion"),
+      frog: this.discoveryLabel("frog"),
+      snail: this.discoveryLabel("snail"),
+      butterfly: this.discoveryLabel("butterfly"),
+      cloudview: this.discoveryLabel("cloudview"),
     };
     return labels[id];
+  }
+
+  private discoveryLabel(id: string) {
+    const discovery = DISCOVERIES.find((entry) => entry.id === id);
+    if (!discovery) return "点击 / E 观察";
+    return this.discoveries.has(id) ? `点击 / E 重看「${discovery.title}」` : `点击 / E 观察「${discovery.title}」`;
+  }
+
+  private observeDiscovery(id: string) {
+    const discovery = DISCOVERIES.find((entry) => entry.id === id);
+    if (!discovery) return;
+    if (this.discoveries.has(id)) {
+      this.hooks.onMessage(`${discovery.icon} ${discovery.title}：${discovery.note}`);
+      return;
+    }
+    this.discoveries.add(id);
+    const thresholdAchievements: string[] = [];
+    if (this.discoveries.size >= 3) thresholdAchievements.push("field_notes");
+    if (this.discoveries.size === DISCOVERIES.length) thresholdAchievements.push("naturalist");
+    this.hooks.onMessage(`图鉴新增 ${discovery.icon}「${discovery.title}」。${discovery.note}${this.awardAchievements(...thresholdAchievements)}`);
+  }
+
+  private awardAchievements(...ids: string[]) {
+    const unlocked: string[] = [];
+    for (const id of ids) {
+      if (this.achievements.has(id)) continue;
+      const achievement = ACHIEVEMENTS.find((entry) => entry.id === id);
+      if (!achievement) continue;
+      this.achievements.add(id);
+      unlocked.push(achievement.title);
+    }
+    return unlocked.length ? ` · 解锁成就「${unlocked.join("」「")}」` : "";
+  }
+
+  private refreshProgressAchievements() {
+    if (this.discoveries.size >= 3) this.awardAchievements("field_notes");
+    if (this.discoveries.size === DISCOVERIES.length) this.awardAchievements("naturalist");
+    if (this.completed && ["waystone", "bench", "hive"].every((task) => this.sideActions.has(task))) this.awardAchievements("unhurried_day");
+  }
+
+  private taskViews(): TaskView[] {
+    return [
+      {
+        id: "main",
+        title: "把勿忘我种子送到山顶小屋",
+        detail: this.objective(),
+        progress: this.completed ? "已完成" : `${this.clues.size}/4 线索`,
+        done: this.completed,
+        optional: false,
+      },
+      {
+        id: "waystone",
+        title: "读懂桥边的旧路标",
+        detail: "路标会把五个视觉区域串成一条可记忆的路线。",
+        progress: this.sideActions.has("waystone") ? "已完成" : "未完成",
+        done: this.sideActions.has("waystone"),
+        optional: true,
+      },
+      {
+        id: "bench",
+        title: "在河边停一会儿",
+        detail: "有些互动不提供道具，只提供一段属于今天的时间。",
+        progress: this.sideActions.has("bench") ? "已完成" : "未完成",
+        done: this.sideActions.has("bench"),
+        optional: true,
+      },
+      {
+        id: "hive",
+        title: "让蜂场重新热闹",
+        detail: "先照料缺水的花，再去看看安静的蜂箱。",
+        progress: this.sideActions.has("hive") ? "已完成" : this.flowersWatered ? "可完成" : "等待花开",
+        done: this.sideActions.has("hive"),
+        optional: true,
+      },
+    ];
   }
 
   private collectClue(id: number) {
@@ -738,13 +895,19 @@ export class Game {
   }
 
   private load(): PersistedState {
-    const fallback: PersistedState = { clues: [], deaths: 0, completed: false, dangerAssist: false, reducedMotion: false };
+    const fallback: PersistedState = {
+      clues: [], discoveries: [], achievements: [], sideActions: [], deaths: 0,
+      completed: false, dangerAssist: false, reducedMotion: false,
+    };
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return fallback;
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
       return {
         clues: Array.isArray(parsed.clues) ? parsed.clues.filter((id) => Number.isInteger(id) && id >= 0 && id < CLUES.length) : [],
+        discoveries: Array.isArray(parsed.discoveries) ? parsed.discoveries.filter((id) => DISCOVERIES.some((entry) => entry.id === id)) : [],
+        achievements: Array.isArray(parsed.achievements) ? parsed.achievements.filter((id) => ACHIEVEMENTS.some((entry) => entry.id === id)) : [],
+        sideActions: Array.isArray(parsed.sideActions) ? parsed.sideActions.filter((id) => ["waystone", "bench", "hive"].includes(id)) : [],
         deaths: Number.isFinite(parsed.deaths) ? Math.max(0, Number(parsed.deaths)) : 0,
         completed: Boolean(parsed.completed),
         dangerAssist: Boolean(parsed.dangerAssist),
@@ -758,6 +921,9 @@ export class Game {
   private save() {
     const state: PersistedState = {
       clues: [...this.clues],
+      discoveries: [...this.discoveries],
+      achievements: [...this.achievements],
+      sideActions: [...this.sideActions],
       deaths: this.deaths,
       completed: this.completed,
       dangerAssist: this.dangerAssist,
@@ -917,6 +1083,13 @@ export class Game {
       ctx.fillRect(center - 83, y, 8, 14);
       ctx.fillRect(center + 75, y + 12, 8, 12);
     }
+    for (const lily of [{ x: 548, y: 706 }, { x: 536, y: 764 }, { x: 580, y: 878 }]) {
+      ctx.fillStyle = "#2f8759";
+      ctx.fillRect(lily.x - 8, lily.y, 16, 7);
+      ctx.fillRect(lily.x - 5, lily.y - 3, 8, 4);
+      ctx.fillStyle = "#ffd1d8";
+      ctx.fillRect(lily.x - 1, lily.y - 5, 5, 5);
+    }
   }
 
   private drawBridge() {
@@ -939,6 +1112,7 @@ export class Game {
   private drawScenery(now: number) {
     this.drawTerrainDetails();
     this.drawSmallLandmarks();
+    this.drawInteractiveProps(now);
     for (const flower of this.flowers) this.drawFlower(flower, now);
     for (const tree of this.trees) this.drawTree(tree.x, tree.y);
     this.drawWindmill(now);
@@ -1001,6 +1175,82 @@ export class Game {
     ctx.fillRect(698, 610, 8, 5);
   }
 
+  private drawInteractiveProps(now: number) {
+    const ctx = this.ctx;
+
+    // River bench.
+    ctx.fillStyle = "rgba(34,74,55,.22)";
+    ctx.fillRect(738, 752, 70, 8);
+    ctx.fillStyle = "#6e492d";
+    ctx.fillRect(740, 716, 62, 9);
+    ctx.fillRect(744, 730, 58, 10);
+    ctx.fillRect(749, 738, 7, 18);
+    ctx.fillRect(790, 738, 7, 18);
+    ctx.fillStyle = "#c88743";
+    ctx.fillRect(744, 718, 54, 3);
+    ctx.fillRect(748, 732, 50, 3);
+
+    // Refillable spring: a utility object rather than one-use scenery.
+    ctx.fillStyle = "#547866";
+    ctx.fillRect(786, 824, 58, 34);
+    ctx.fillStyle = "#8ca47f";
+    ctx.fillRect(792, 818, 46, 12);
+    ctx.fillStyle = "#2f8fab";
+    ctx.fillRect(797, 829, 36, 24);
+    ctx.fillStyle = "#8ce3e5";
+    ctx.fillRect(802, 832, 22, 4);
+    ctx.fillRect(817, 840, 11, 3);
+
+    // Five collectible observations, each with a unique silhouette.
+    ctx.fillStyle = "#f7f3d2";
+    ctx.fillRect(381, 845, 3, 13);
+    ctx.fillRect(376, 841, 13, 3);
+    ctx.fillRect(379, 838, 7, 9);
+    ctx.fillStyle = "#d8e889";
+    ctx.fillRect(380, 857, 2, 6);
+
+    ctx.fillStyle = "#347a51";
+    ctx.fillRect(666, 641, 17, 9);
+    ctx.fillRect(670, 636, 9, 8);
+    ctx.fillStyle = "#f4dc75";
+    ctx.fillRect(671, 640, 3, 3);
+    ctx.fillStyle = "#285f43";
+    ctx.fillRect(663, 648, 7, 3);
+    ctx.fillRect(679, 648, 7, 3);
+
+    ctx.fillStyle = "#e29552";
+    ctx.fillRect(895, 221, 13, 10);
+    ctx.fillStyle = "#f1b965";
+    ctx.fillRect(898, 218, 9, 8);
+    ctx.fillStyle = "#6b523b";
+    ctx.fillRect(907, 228, 10, 3);
+    ctx.fillRect(914, 226, 3, 6);
+
+    const wing = this.reducedMotion ? 0 : Math.round(Math.sin(now / 120) * 2);
+    ctx.fillStyle = "#f58ba8";
+    ctx.fillRect(1174 - wing, 456, 9, 12);
+    ctx.fillRect(1187 + wing, 456, 9, 12);
+    ctx.fillStyle = "#65404b";
+    ctx.fillRect(1183, 459, 4, 13);
+    ctx.fillStyle = "#ffd27b";
+    ctx.fillRect(1178 - wing, 459, 4, 4);
+    ctx.fillRect(1189 + wing, 459, 4, 4);
+
+    // Mountain lookout and its slowly passing cloud shadow.
+    ctx.fillStyle = "#66503b";
+    ctx.fillRect(1475, 279, 9, 32);
+    ctx.fillRect(1463, 282, 34, 8);
+    ctx.fillStyle = "#8fd5d5";
+    ctx.fillRect(1484, 271, 21, 10);
+    ctx.fillStyle = "#e9f7df";
+    ctx.fillRect(1488, 268, 13, 5);
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = "#254f4f";
+    ctx.fillRect(1444 + (this.reducedMotion ? 0 : Math.round(Math.sin(now / 900) * 8)), 312, 70, 16);
+    ctx.restore();
+  }
+
   private drawNavigation(now: number) {
     if (!this.navigationTarget) return;
     const ctx = this.ctx;
@@ -1037,7 +1287,7 @@ export class Game {
     const radius = 22 + (this.reducedMotion ? 0 : Math.round(Math.sin(now / 170) * 2));
     const ctx = this.ctx;
     ctx.save();
-    ctx.strokeStyle = "#fff4a4";
+    ctx.strokeStyle = SIGNAL_COLORS[INTERACTION_KINDS[this.hoveredInteraction] ?? "story"];
     ctx.lineWidth = 3;
     ctx.setLineDash([7, 5]);
     ctx.strokeRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
@@ -1067,6 +1317,15 @@ export class Game {
     ctx.fillRect(x - 20, y - 12, 28, 14);
     ctx.fillStyle = "#285e41";
     ctx.fillRect(x + 17, y + 34, 24, 14);
+    if (x > 1030 && y < 620) {
+      ctx.fillStyle = "#ffd0d3";
+      ctx.fillRect(x - 28, y - 9, 10, 7);
+      ctx.fillRect(x + 8, y + 2, 12, 8);
+      ctx.fillRect(x - 5, y + 29, 9, 7);
+      ctx.fillStyle = "#fff0d8";
+      ctx.fillRect(x - 25, y - 7, 4, 3);
+      ctx.fillRect(x + 12, y + 4, 4, 3);
+    }
   }
 
   private drawWindmill(now: number) {
@@ -1196,22 +1455,50 @@ export class Game {
   }
 
   private drawSparkles(now: number) {
-    const targets: Point[] = [];
-    if (!this.clues.has(0)) targets.push(INTERACTION_POINTS.mill);
-    if (!this.inventory.has("trowel")) targets.push(INTERACTION_POINTS.trowel);
-    if (!this.clues.has(2)) targets.push(INTERACTION_POINTS.postcard);
-    if (!this.clues.has(1)) targets.push(INTERACTION_POINTS.picnic);
-    if (!this.flowersWatered || !this.inventory.has("key")) targets.push(INTERACTION_POINTS.flowers);
-    if (!this.clues.has(3)) targets.push(INTERACTION_POINTS.cottage);
-    const pulse = this.reducedMotion ? 1 : 0.6 + Math.sin(now / 180) * 0.35;
-    for (const point of targets) {
-      const size = 6 + Math.round(pulse * 5);
-      this.ctx.fillStyle = "#fff9a9";
-      this.ctx.fillRect(point.x - 2, point.y - size, 4, size * 2);
-      this.ctx.fillRect(point.x - size, point.y - 2, size * 2, 4);
-      this.ctx.fillStyle = "#ffffff";
-      this.ctx.fillRect(point.x - 2, point.y - 2, 4, 4);
+    const pulse = this.reducedMotion ? 0 : Math.round(Math.sin(now / 180) * 2);
+    for (const [id, point] of Object.entries(INTERACTION_POINTS)) {
+      if (!this.interactionIsActive(id)) continue;
+      const kind = INTERACTION_KINDS[id] ?? "story";
+      const color = SIGNAL_COLORS[kind];
+      const size = 12 + pulse;
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = color;
+      ctx.fillRect(point.x - size - 5, point.y - size - 5, (size + 5) * 2, (size + 5) * 2);
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(point.x - size, point.y - size, 7, 3);
+      ctx.fillRect(point.x - size, point.y - size, 3, 7);
+      ctx.fillRect(point.x + size - 7, point.y - size, 7, 3);
+      ctx.fillRect(point.x + size - 3, point.y - size, 3, 7);
+      ctx.fillRect(point.x - size, point.y + size - 3, 7, 3);
+      ctx.fillRect(point.x - size, point.y + size - 7, 3, 7);
+      ctx.fillRect(point.x + size - 7, point.y + size - 3, 7, 3);
+      ctx.fillRect(point.x + size - 3, point.y + size - 7, 3, 7);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(point.x - 1, point.y - 5, 2, 10);
+      ctx.fillRect(point.x - 5, point.y - 1, 10, 2);
+      ctx.restore();
     }
+  }
+
+  private interactionIsActive(id: string) {
+    const active: Record<string, boolean> = {
+      mill: !this.clues.has(0),
+      trowel: !this.inventory.has("trowel"),
+      postcard: !this.clues.has(2),
+      picnic: !this.clues.has(1) || !this.inventory.has("ribbon"),
+      windpost: !this.windTied,
+      mound: !this.moundCleared,
+      flowers: !this.flowersWatered,
+      cottage: !this.completed,
+      waystone: !this.sideActions.has("waystone"),
+      bench: !this.sideActions.has("bench"),
+      spring: !this.inventory.has("water") && !this.flowersWatered,
+      hive: !this.sideActions.has("hive"),
+    };
+    const isDiscovery = DISCOVERIES.some((discovery) => discovery.id === id);
+    return isDiscovery ? !this.discoveries.has(id) : Boolean(active[id]);
   }
 
   private drawHazards(now: number) {

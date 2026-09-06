@@ -1,5 +1,5 @@
 import "./style.css";
-import { CLUES, ITEMS, ITEM_ORDER, PASSCODE } from "./game/content";
+import { ACHIEVEMENTS, CLUES, DISCOVERIES, ITEMS, ITEM_ORDER, PASSCODE } from "./game/content";
 import { Game } from "./game/Game";
 import type { DeathInfo, Direction, ViewState } from "./game/types";
 
@@ -10,7 +10,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span class="wordmark-flower">✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · PLAYABLE PROTOTYPE</small></div></div>
-      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.2</div>
+      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.3</div>
     </header>
 
     <section class="game-frame" aria-label="春日花谷游戏区域">
@@ -54,8 +54,15 @@ app.innerHTML = `
           <div id="inventoryGrid" class="inventory-grid"></div>
         </section>
         <section class="drawer-panel" data-panel="journal">
-          <div class="journal-title"><div><small>LIFE LOG</small><b>今天记住的事</b></div><span id="clueCount">0 / 4</span></div>
+          <div class="journal-title"><div><small>LIFE LOG</small><b>今天记住的事</b></div><span id="journalProgress">0%</span></div>
+          <div class="journal-section-head"><b>今日任务</b><small>主线与小事</small></div>
+          <div id="taskList" class="task-list"></div>
+          <div class="journal-section-head"><b>口令线索</b><small id="clueCount">0 / 4</small></div>
           <div id="clueList" class="clue-list"></div>
+          <div class="journal-section-head"><b>自然发现</b><small id="discoveryCount">0 / 5</small></div>
+          <div id="discoveryGrid" class="discovery-grid"></div>
+          <div class="journal-section-head"><b>小小成就</b><small id="achievementCount">0 / 9</small></div>
+          <div id="achievementGrid" class="achievement-grid"></div>
           <div class="death-count">尝试次数 <b id="deathCount">01</b></div>
         </section>
         <section class="drawer-panel" data-panel="save">
@@ -64,6 +71,7 @@ app.innerHTML = `
         <section class="drawer-panel" data-panel="settings">
           <label class="setting-row"><div><b>加强危险轮廓</b><small>为风口和坠落区域增加红色边界</small></div><input id="dangerAssist" type="checkbox" /></label>
           <label class="setting-row"><div><b>减少动态效果</b><small>减弱水流、花朵和角色晃动</small></div><input id="reducedMotion" type="checkbox" /></label>
+          <div class="signal-legend"><b>世界光边</b><span><i class="story"></i>主线</span><span><i class="utility"></i>工具</span><span><i class="optional"></i>小事</span><span><i class="discovery"></i>观察</span></div>
           <div class="controls-list"><b>操作方式</b><span><kbd>左键</kbd> 点地移动，按住可持续跟随</span><span><kbd>左键</kbd> 点击闪光物，自动走近调查</span><span><kbd>右键</kbd> 取消移动　<kbd>B</kbd> 背包</span><span><kbd>WASD</kbd> 备用移动　<kbd>E</kbd> 调查</span></div>
         </section>
       </aside>
@@ -130,8 +138,14 @@ const objectiveValue = element("#objectiveValue");
 const prompt = element("#interactionPrompt");
 const quickbar = element("#quickbar");
 const inventoryGrid = element("#inventoryGrid");
+const taskList = element("#taskList");
 const clueList = element("#clueList");
 const clueCount = element("#clueCount");
+const journalProgress = element("#journalProgress");
+const discoveryGrid = element("#discoveryGrid");
+const discoveryCount = element("#discoveryCount");
+const achievementGrid = element("#achievementGrid");
+const achievementCount = element("#achievementCount");
 const deathCount = element("#deathCount");
 const toast = element("#toast");
 const drawer = element("#drawer");
@@ -172,6 +186,11 @@ function renderView(state: ViewState) {
   prompt.textContent = state.interaction ?? "";
   deathCount.textContent = String(Math.max(1, state.deaths + 1)).padStart(2, "0");
   clueCount.textContent = `${state.clues.length} / ${CLUES.length}`;
+  discoveryCount.textContent = `${state.discoveries.length} / ${DISCOVERIES.length}`;
+  achievementCount.textContent = `${state.achievements.length} / ${ACHIEVEMENTS.length}`;
+  const journalDone = state.clues.length + state.discoveries.length + state.achievements.length;
+  const journalTotal = CLUES.length + DISCOVERIES.length + ACHIEVEMENTS.length;
+  journalProgress.textContent = `${Math.round(journalDone / journalTotal * 100)}%`;
   dangerAssist.checked = state.dangerAssist;
   reducedMotion.checked = state.reducedMotion;
 
@@ -189,6 +208,23 @@ function renderView(state: ViewState) {
   clueList.innerHTML = CLUES.map((clue) => {
     const found = state.clues.includes(clue.id);
     return `<article class="clue-item ${found ? "found" : "missing"}"><span>${found ? clue.digit : "?"}</span><div><b>${found ? clue.title : "一段还没遇见的记忆"}</b><small>${found ? clue.memory : "闪光会在附近轻轻响起。"}</small></div></article>`;
+  }).join("");
+
+  taskList.innerHTML = state.tasks.map((task) => `
+    <article class="task-item ${task.done ? "done" : ""} ${task.optional ? "optional" : "main"}">
+      <span>${task.done ? "✓" : task.optional ? "·" : "★"}</span>
+      <div><div class="task-title"><b>${task.title}</b><small>${task.progress}</small></div><p>${task.detail}</p></div>
+    </article>
+  `).join("");
+
+  discoveryGrid.innerHTML = DISCOVERIES.map((discovery) => {
+    const found = state.discoveries.includes(discovery.id);
+    return `<article class="discovery-item ${found ? "found" : "locked"}" title="${found ? discovery.note : "在花谷中寻找带粉色光边的小生命"}"><span>${found ? discovery.icon : "?"}</span><b>${found ? discovery.title : "等待观察"}</b></article>`;
+  }).join("");
+
+  achievementGrid.innerHTML = ACHIEVEMENTS.map((achievement) => {
+    const unlocked = state.achievements.includes(achievement.id);
+    return `<article class="achievement-item ${unlocked ? "unlocked" : "locked"}" title="${achievement.description}"><span>${unlocked ? achievement.icon : "·"}</span><b>${achievement.title}</b></article>`;
   }).join("");
 }
 

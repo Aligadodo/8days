@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 - 2026-09-06
+
+- Added a four-color pixel-outline language for story, utility, optional, and discovery interactions, with hover and completed states.
+- Expanded the valley with a rest bench, refillable spring, readable waystone, reactive beehives, and five collectible nature observations.
+- Added three optional daily tasks and nine persistent achievements without introducing new top-level UI pages.
+- Expanded the journal with task status, discovery collection, achievement grid, and overall completion percentage.
+- Persisted discoveries, side activities, and achievements across reloads and death retries.
+- Added river lilies, blossom accents, new interactive props, and richer environmental relationships.
+- Documented the reusable content library, interaction state model, map density budget, and staged implementation plan.
+
 ## 0.2.0 - 2026-09-06
 
 - Replaced keyboard-first navigation with mouse-first click-to-move, hold-to-follow, object auto-approach, route feedback, and right-click cancel while retaining keyboard controls.

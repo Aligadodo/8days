@@ -17,6 +17,29 @@ export interface ClueDefinition {
   memory: string;
 }
 
+export interface TaskView {
+  id: string;
+  title: string;
+  detail: string;
+  progress: string;
+  done: boolean;
+  optional: boolean;
+}
+
+export interface AchievementDefinition {
+  id: string;
+  icon: string;
+  title: string;
+  description: string;
+}
+
+export interface DiscoveryDefinition {
+  id: string;
+  icon: string;
+  title: string;
+  note: string;
+}
+
 export interface ViewState {
   time: string;
   objective: string;
@@ -24,6 +47,9 @@ export interface ViewState {
   inventory: ItemId[];
   selectedSlot: number;
   clues: number[];
+  tasks: TaskView[];
+  discoveries: string[];
+  achievements: string[];
   deaths: number;
   completed: boolean;
   dangerAssist: boolean;
@@ -43,4 +69,3 @@ export interface GameHooks {
   onCodeRequest: () => void;
   onComplete: () => void;
 }
-
