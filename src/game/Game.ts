@@ -4,6 +4,8 @@ import type { DeathInfo, Direction, GameHooks, ItemId, ViewState } from "./types
 type Rect = { x: number; y: number; w: number; h: number };
 type Point = { x: number; y: number };
 type Flower = Point & { color: string; size: number };
+type TerrainDetail = Point & { variant: number };
+type GridCell = { col: number; row: number };
 
 interface PersistedState {
   clues: number[];
@@ -15,9 +17,12 @@ interface PersistedState {
 
 const SAVE_KEY = "one-more-day:flower-valley:v1";
 const PLAYER_SIZE = { w: 26, h: 34 };
+const NAV_CELL = 32;
+const INTERACTION_DISTANCE = 72;
+const RENDER_SCALE = 2;
 
 const BUILDINGS: Rect[] = [
-  { x: 88, y: 328, w: 310, h: 224 },
+  { x: 88, y: 520, w: 310, h: 224 },
   { x: 1264, y: 34, w: 272, h: 202 },
 ];
 
@@ -26,8 +31,8 @@ const WIND_ZONE: Rect = { x: 720, y: 250, w: 330, h: 112 };
 const BRANCH_ZONE: Rect = { x: 1058, y: 535, w: 126, h: 104 };
 
 const INTERACTION_POINTS: Record<string, Point> = {
-  mill: { x: 414, y: 536 },
-  trowel: { x: 326, y: 632 },
+  mill: { x: 414, y: 728 },
+  trowel: { x: 326, y: 824 },
   postcard: { x: 674, y: 532 },
   picnic: { x: 904, y: 724 },
   windpost: { x: 786, y: 380 },
@@ -35,6 +40,11 @@ const INTERACTION_POINTS: Record<string, Point> = {
   flowers: { x: 1172, y: 336 },
   cottage: { x: 1398, y: 252 },
 };
+
+const TRAIL_POINTS: Point[] = [
+  { x: 150, y: 830 }, { x: 322, y: 822 }, { x: 432, y: 734 }, { x: 432, y: 610 }, { x: 520, y: 535 }, { x: 682, y: 535 },
+  { x: 890, y: 715 }, { x: 1080, y: 600 }, { x: 1050, y: 455 }, { x: 1180, y: 334 }, { x: 1395, y: 252 },
+];
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -68,6 +78,7 @@ export class Game {
   private readonly virtualKeys = new Set<Direction>();
   private readonly flowers: Flower[];
   private readonly trees: Point[];
+  private readonly terrainDetails: TerrainDetail[];
   private lastFrame = performance.now();
   private lastViewUpdate = 0;
   private elapsed = 0;
@@ -79,8 +90,8 @@ export class Game {
   private completed = false;
   private dangerAssist = false;
   private reducedMotion = false;
-  private player = { x: 176, y: 760, ...PLAYER_SIZE, direction: "down" as Direction };
-  private camera = { x: 0, y: 410 };
+  private player = { x: 166, y: 800, ...PLAYER_SIZE, direction: "down" as Direction };
+  private camera = { x: 0, y: 510 };
   private moundCleared = false;
   private flowersWatered = false;
   private windTied = false;
@@ -88,6 +99,13 @@ export class Game {
   private branchFallen = false;
   private currentInteraction: string | null = null;
   private lastDangerNotice = "";
+  private navigationPath: Point[] = [];
+  private navigationTarget: Point | null = null;
+  private pendingInteraction: string | null = null;
+  private hoveredInteraction: string | null = null;
+  private pointer = { x: 0, y: 0, visible: false, holding: false };
+  private lastPointerRouteAt = 0;
+  private isMoving = false;
 
   constructor(canvas: HTMLCanvasElement, hooks: GameHooks) {
     this.canvas = canvas;
@@ -95,8 +113,8 @@ export class Game {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas 2D is not available");
     this.ctx = context;
-    this.canvas.width = VIEWPORT.width;
-    this.canvas.height = VIEWPORT.height;
+    this.canvas.width = VIEWPORT.width * RENDER_SCALE;
+    this.canvas.height = VIEWPORT.height * RENDER_SCALE;
     this.ctx.imageSmoothingEnabled = false;
     const persisted = this.load();
     this.clues = new Set(persisted.clues);
@@ -106,7 +124,9 @@ export class Game {
     this.reducedMotion = persisted.reducedMotion;
     this.flowers = this.createFlowers();
     this.trees = this.createTrees();
+    this.terrainDetails = this.createTerrainDetails();
     this.bindKeyboard();
+    this.bindPointer();
     this.emitView();
     requestAnimationFrame(this.loop);
   }
@@ -122,6 +142,7 @@ export class Game {
     this.paused = paused;
     this.keys.clear();
     this.virtualKeys.clear();
+    this.pointer.holding = false;
   }
 
   setMovement(direction: Direction, active: boolean) {
@@ -158,9 +179,11 @@ export class Game {
     this.hooks.onMessage(descriptions[id]);
   }
 
-  interact() {
+  interact(requestedId?: string) {
     if (this.paused) return;
-    const id = this.nearestInteraction();
+    const id = requestedId && distance(this.playerCenter(), INTERACTION_POINTS[requestedId]) <= INTERACTION_DISTANCE
+      ? requestedId
+      : this.nearestInteraction();
     if (!id) {
       this.hooks.onMessage("这里没有需要调查的东西。四处走走看吧。");
       return;
@@ -248,14 +271,15 @@ export class Game {
   restart() {
     this.inventory = new Set<ItemId>(["journal"]);
     this.selectedSlot = 0;
-    this.player = { x: 176, y: 760, ...PLAYER_SIZE, direction: "down" };
-    this.camera = { x: 0, y: 410 };
+    this.player = { x: 166, y: 800, ...PLAYER_SIZE, direction: "down" };
+    this.camera = { x: 0, y: 510 };
     this.elapsed = 0;
     this.moundCleared = false;
     this.flowersWatered = false;
     this.windTied = false;
     this.branchTriggeredAt = null;
     this.branchFallen = false;
+    this.cancelNavigation();
     this.paused = false;
     this.lastFrame = performance.now();
     this.hooks.onMessage("你记得发生过的事。这一次，慢一点。");
@@ -303,6 +327,7 @@ export class Game {
       const key = event.key.toLowerCase();
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"].includes(key)) {
         event.preventDefault();
+        this.cancelNavigation();
         this.keys.add(key);
       }
       if (!event.repeat && (key === "e" || key === " ")) {
@@ -317,6 +342,53 @@ export class Game {
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.virtualKeys.clear();
+    });
+  }
+
+  private bindPointer() {
+    const updatePointer = (event: PointerEvent) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const screenX = (event.clientX - rect.left) / rect.width * VIEWPORT.width;
+      const screenY = (event.clientY - rect.top) / rect.height * VIEWPORT.height;
+      this.pointer.x = clamp(screenX + this.camera.x, 0, WORLD.width);
+      this.pointer.y = clamp(screenY + this.camera.y, 0, WORLD.height);
+      this.pointer.visible = true;
+      this.hoveredInteraction = this.interactionAt(this.pointer, 48);
+      this.canvas.style.cursor = this.hoveredInteraction ? "pointer" : "crosshair";
+    };
+
+    this.canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || this.paused) return;
+      event.preventDefault();
+      updatePointer(event);
+      this.pointer.holding = true;
+      this.canvas.setPointerCapture(event.pointerId);
+      if (this.hoveredInteraction) this.queueInteraction(this.hoveredInteraction);
+      else this.navigateTo(this.pointer);
+    });
+    this.canvas.addEventListener("pointermove", (event) => {
+      updatePointer(event);
+      if (!this.pointer.holding || this.paused || performance.now() - this.lastPointerRouteAt < 90) return;
+      this.lastPointerRouteAt = performance.now();
+      this.pendingInteraction = null;
+      this.navigateTo(this.pointer, false);
+    });
+    this.canvas.addEventListener("pointerup", (event) => {
+      this.pointer.holding = false;
+      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+    });
+    this.canvas.addEventListener("pointercancel", () => { this.pointer.holding = false; });
+    this.canvas.addEventListener("pointerleave", () => {
+      if (!this.pointer.holding) {
+        this.pointer.visible = false;
+        this.hoveredInteraction = null;
+        this.canvas.style.cursor = "default";
+      }
+    });
+    this.canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      this.cancelNavigation();
+      this.hooks.onMessage("已取消移动。");
     });
   }
 
@@ -336,6 +408,7 @@ export class Game {
     if (this.keys.has("d") || this.keys.has("arrowright") || this.virtualKeys.has("right")) x += 1;
     if (this.keys.has("w") || this.keys.has("arrowup") || this.virtualKeys.has("up")) y -= 1;
     if (this.keys.has("s") || this.keys.has("arrowdown") || this.virtualKeys.has("down")) y += 1;
+    this.isMoving = false;
     if (x || y) {
       const length = Math.hypot(x, y);
       x /= length;
@@ -345,16 +418,191 @@ export class Game {
       else this.player.direction = y > 0 ? "down" : "up";
       this.tryMove(x * speed * dt, 0);
       this.tryMove(0, y * speed * dt);
+      this.isMoving = true;
+    } else {
+      this.followNavigation(dt);
     }
 
     this.camera.x += (clamp(this.player.x - VIEWPORT.width / 2, 0, WORLD.width - VIEWPORT.width) - this.camera.x) * Math.min(1, dt * 5);
     this.camera.y += (clamp(this.player.y - VIEWPORT.height / 2, 0, WORLD.height - VIEWPORT.height) - this.camera.y) * Math.min(1, dt * 5);
     this.updateHazards(now);
-    this.currentInteraction = this.interactionLabel(this.nearestInteraction());
+    this.currentInteraction = this.interactionLabel(this.hoveredInteraction ?? this.nearestInteraction());
     if (now - this.lastViewUpdate > 120) {
       this.lastViewUpdate = now;
       this.emitView();
     }
+  }
+
+  private followNavigation(dt: number) {
+    while (this.navigationPath.length && distance(this.playerCenter(), this.navigationPath[0]) < 5) {
+      this.navigationPath.shift();
+    }
+    const waypoint = this.navigationPath[0];
+    if (waypoint) {
+      const center = this.playerCenter();
+      const dx = waypoint.x - center.x;
+      const dy = waypoint.y - center.y;
+      const length = Math.hypot(dx, dy);
+      const speed = 178;
+      const step = Math.min(length, speed * dt);
+      const moveX = dx / length * step;
+      const moveY = dy / length * step;
+      if (Math.abs(moveX) > Math.abs(moveY)) this.player.direction = moveX > 0 ? "right" : "left";
+      else this.player.direction = moveY > 0 ? "down" : "up";
+      const before = this.playerCenter();
+      this.tryMove(moveX, 0);
+      this.tryMove(0, moveY);
+      this.isMoving = distance(before, this.playerCenter()) > 0.1;
+      if (!this.isMoving) this.cancelNavigation();
+      return;
+    }
+
+    if (this.navigationTarget) this.navigationTarget = null;
+    if (this.pendingInteraction) {
+      const id = this.pendingInteraction;
+      this.pendingInteraction = null;
+      this.interact(id);
+    }
+  }
+
+  private navigateTo(destination: Point, announceFailure = true) {
+    const route = this.findPath(this.playerCenter(), destination);
+    if (!route.length) {
+      if (announceFailure) this.hooks.onMessage("那里走不过去，换个位置试试。");
+      this.navigationPath = [];
+      this.navigationTarget = null;
+      this.pendingInteraction = null;
+      return;
+    }
+    this.navigationPath = route;
+    this.navigationTarget = route[route.length - 1];
+  }
+
+  private queueInteraction(id: string) {
+    const point = INTERACTION_POINTS[id];
+    if (distance(this.playerCenter(), point) <= INTERACTION_DISTANCE) {
+      this.cancelNavigation();
+      this.interact(id);
+      return;
+    }
+    this.pendingInteraction = id;
+    this.navigateTo(point);
+  }
+
+  private cancelNavigation() {
+    this.navigationPath = [];
+    this.navigationTarget = null;
+    this.pendingInteraction = null;
+  }
+
+  private interactionAt(point: Point, radius: number) {
+    let nearest: string | null = null;
+    let nearestDistance = radius;
+    for (const [id, target] of Object.entries(INTERACTION_POINTS)) {
+      const d = distance(point, target);
+      if (d < nearestDistance) {
+        nearest = id;
+        nearestDistance = d;
+      }
+    }
+    return nearest;
+  }
+
+  private findPath(start: Point, destination: Point): Point[] {
+    const startCell = this.nearestWalkableCell(start);
+    const goalCell = this.nearestWalkableCell(destination);
+    if (!startCell || !goalCell) return [];
+
+    const cols = Math.ceil(WORLD.width / NAV_CELL);
+    const rows = Math.ceil(WORLD.height / NAV_CELL);
+    const cellKey = (cell: GridCell) => `${cell.col},${cell.row}`;
+    const goalKey = cellKey(goalCell);
+    const open: Array<GridCell & { f: number }> = [{ ...startCell, f: 0 }];
+    const costs = new Map<string, number>([[cellKey(startCell), 0]]);
+    const parents = new Map<string, string>();
+    const cells = new Map<string, GridCell>([[cellKey(startCell), startCell]]);
+    const visited = new Set<string>();
+    const directions = [-1, 0, 1].flatMap((row) => [-1, 0, 1].map((col) => ({ col, row }))).filter(({ col, row }) => col || row);
+
+    while (open.length) {
+      open.sort((a, b) => a.f - b.f);
+      const current = open.shift()!;
+      const currentKey = cellKey(current);
+      if (visited.has(currentKey)) continue;
+      if (currentKey === goalKey) {
+        const path: Point[] = [];
+        let key: string | undefined = currentKey;
+        while (key && key !== cellKey(startCell)) {
+          const cell = cells.get(key)!;
+          path.unshift(this.cellCenter(cell));
+          key = parents.get(key);
+        }
+        if (!path.length) path.push(this.cellCenter(goalCell));
+        return this.simplifyPath(path);
+      }
+      visited.add(currentKey);
+
+      for (const direction of directions) {
+        const next = { col: current.col + direction.col, row: current.row + direction.row };
+        if (next.col < 0 || next.row < 0 || next.col >= cols || next.row >= rows || !this.cellIsWalkable(next)) continue;
+        if (direction.col && direction.row) {
+          if (!this.cellIsWalkable({ col: current.col + direction.col, row: current.row }) || !this.cellIsWalkable({ col: current.col, row: current.row + direction.row })) continue;
+        }
+        const nextKey = cellKey(next);
+        const moveCost = direction.col && direction.row ? 1.414 : 1;
+        const cost = (costs.get(currentKey) ?? Infinity) + moveCost;
+        if (cost >= (costs.get(nextKey) ?? Infinity)) continue;
+        costs.set(nextKey, cost);
+        parents.set(nextKey, currentKey);
+        cells.set(nextKey, next);
+        const heuristic = Math.hypot(goalCell.col - next.col, goalCell.row - next.row);
+        open.push({ ...next, f: cost + heuristic });
+      }
+    }
+    return [];
+  }
+
+  private nearestWalkableCell(point: Point): GridCell | null {
+    const origin = {
+      col: clamp(Math.floor(point.x / NAV_CELL), 0, Math.ceil(WORLD.width / NAV_CELL) - 1),
+      row: clamp(Math.floor(point.y / NAV_CELL), 0, Math.ceil(WORLD.height / NAV_CELL) - 1),
+    };
+    let best: GridCell | null = null;
+    let bestDistance = Infinity;
+    for (let radius = 0; radius <= 5; radius += 1) {
+      for (let row = origin.row - radius; row <= origin.row + radius; row += 1) {
+        for (let col = origin.col - radius; col <= origin.col + radius; col += 1) {
+          const cell = { col, row };
+          if (!this.cellIsWalkable(cell)) continue;
+          const d = distance(point, this.cellCenter(cell));
+          if (d < bestDistance) {
+            best = cell;
+            bestDistance = d;
+          }
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  private cellCenter(cell: GridCell) {
+    return { x: cell.col * NAV_CELL + NAV_CELL / 2, y: cell.row * NAV_CELL + NAV_CELL / 2 };
+  }
+
+  private cellIsWalkable(cell: GridCell) {
+    const center = this.cellCenter(cell);
+    return !this.isBlocked({ x: center.x - PLAYER_SIZE.w / 2, y: center.y - PLAYER_SIZE.h / 2, ...PLAYER_SIZE });
+  }
+
+  private simplifyPath(path: Point[]) {
+    if (path.length < 3) return path;
+    return path.filter((point, index) => {
+      if (index === 0 || index === path.length - 1) return true;
+      const previous = path[index - 1];
+      const next = path[index + 1];
+      return Math.sign(point.x - previous.x) !== Math.sign(next.x - point.x) || Math.sign(point.y - previous.y) !== Math.sign(next.y - point.y);
+    });
   }
 
   private tryMove(dx: number, dy: number) {
@@ -426,7 +674,7 @@ export class Game {
   private nearestInteraction() {
     const player = this.playerCenter();
     let nearest: string | null = null;
-    let nearestDistance = 64;
+    let nearestDistance = INTERACTION_DISTANCE;
     for (const [id, point] of Object.entries(INTERACTION_POINTS)) {
       const d = distance(player, point);
       if (d < nearestDistance) {
@@ -440,14 +688,14 @@ export class Game {
   private interactionLabel(id: string | null) {
     if (!id) return null;
     const labels: Record<string, string> = {
-      mill: this.clues.has(0) ? "E 再看一眼旧门牌" : "E 调查旧磨坊门牌",
-      trowel: this.inventory.has("trowel") ? "E 查看空木箱" : "E 拾取小铲",
-      postcard: this.clues.has(2) ? "E 阅读明信片" : "E 拾起发光的明信片",
-      picnic: this.clues.has(1) ? "E 查看野餐地" : "E 调查野餐便笺",
-      windpost: "E 调查风向杆",
-      mound: this.moundCleared ? "E 查看清开的路" : "E 清理土堆",
-      flowers: "E 照料枯萎的小花",
-      cottage: this.clues.has(3) ? "E 尝试打开小屋" : "E 调查山顶门牌",
+      mill: this.clues.has(0) ? "点击 / E 再看旧门牌" : "点击 / E 调查旧磨坊门牌",
+      trowel: this.inventory.has("trowel") ? "点击 / E 查看空木箱" : "点击 / E 拾取小铲",
+      postcard: this.clues.has(2) ? "点击 / E 阅读明信片" : "点击 / E 拾起发光的明信片",
+      picnic: this.clues.has(1) ? "点击 / E 查看野餐地" : "点击 / E 调查野餐便笺",
+      windpost: "点击 / E 调查风向杆",
+      mound: this.moundCleared ? "点击 / E 查看清开的路" : "点击 / E 清理土堆",
+      flowers: "点击 / E 照料枯萎的小花",
+      cottage: this.clues.has(3) ? "点击 / E 尝试打开小屋" : "点击 / E 调查山顶门牌",
     };
     return labels[id];
   }
@@ -534,15 +782,27 @@ export class Game {
 
   private createTrees() {
     return [
-      { x: 44, y: 120 }, { x: 424, y: 126 }, { x: 890, y: 110 }, { x: 1110, y: 152 },
-      { x: 1180, y: 575 }, { x: 1325, y: 610 }, { x: 1500, y: 520 }, { x: 54, y: 690 },
-      { x: 760, y: 850 }, { x: 1240, y: 830 }, { x: 1510, y: 790 },
+      { x: 44, y: 120 }, { x: 240, y: 118 }, { x: 424, y: 126 }, { x: 890, y: 110 }, { x: 1110, y: 152 },
+      { x: 1180, y: 575 }, { x: 1325, y: 610 }, { x: 1500, y: 520 }, { x: 54, y: 690 }, { x: 462, y: 836 },
+      { x: 760, y: 850 }, { x: 1240, y: 830 }, { x: 1380, y: 780 }, { x: 1510, y: 790 },
     ];
+  }
+
+  private createTerrainDetails() {
+    const random = seededRandom(81342);
+    const details: TerrainDetail[] = [];
+    for (let i = 0; i < 390; i += 1) {
+      const point = { x: 28 + random() * (WORLD.width - 56), y: 58 + random() * (WORLD.height - 86) };
+      const nearRiver = Math.abs(point.x - this.riverCenter(point.y)) < 105;
+      const inBuilding = BUILDINGS.some((rect) => inside(point, rect));
+      if (!nearRiver && !inBuilding) details.push({ ...point, variant: Math.floor(random() * 4) });
+    }
+    return details;
   }
 
   private draw(now: number) {
     const ctx = this.ctx;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
     ctx.fillStyle = "#8ed9d2";
     ctx.fillRect(0, 0, VIEWPORT.width, VIEWPORT.height);
     ctx.translate(-Math.round(this.camera.x), -Math.round(this.camera.y));
@@ -552,34 +812,49 @@ export class Game {
     this.drawBridge();
     this.drawScenery(now);
     this.drawHazards(now);
+    this.drawNavigation(now);
+    this.drawInteractionFocus(now);
     this.drawPlayer(now);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
     const gradient = ctx.createLinearGradient(0, 0, 0, VIEWPORT.height);
-    gradient.addColorStop(0, "rgba(255,255,218,.07)");
+    gradient.addColorStop(0, "rgba(255,255,218,.045)");
     gradient.addColorStop(0.75, "rgba(255,255,255,0)");
-    gradient.addColorStop(1, "rgba(20,73,65,.16)");
+    gradient.addColorStop(1, "rgba(20,73,65,.12)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, VIEWPORT.width, VIEWPORT.height);
   }
 
   private drawGround() {
     const ctx = this.ctx;
-    ctx.fillStyle = "#73bd6b";
+    ctx.fillStyle = "#76c56f";
     ctx.fillRect(0, 0, WORLD.width, WORLD.height);
-    for (let y = 0; y < WORLD.height; y += 32) {
-      for (let x = 0; x < WORLD.width; x += 32) {
-        const tone = ((x / 32) * 7 + (y / 32) * 11) % 5;
-        ctx.fillStyle = tone === 0 ? "#6bb263" : tone === 1 ? "#79c36f" : "#73bd6b";
-        ctx.fillRect(x, y, 32, 32);
-        if (tone === 0) {
-          ctx.fillStyle = "#589c5a";
-          ctx.fillRect(x + 6, y + 20, 3, 6);
-          ctx.fillRect(x + 12, y + 18, 3, 8);
-        }
+    // Distinct terrain rooms: orchard, windy ridge and the upper flower terrace.
+    ctx.fillStyle = "#6eb964";
+    ctx.fillRect(0, 54, 610, 270);
+    ctx.fillStyle = "#68b163";
+    ctx.fillRect(680, 166, 430, 248);
+    ctx.fillStyle = "#84cb70";
+    ctx.fillRect(1080, 225, 480, 225);
+    ctx.fillStyle = "#71bb67";
+    ctx.fillRect(1020, 690, 560, 240);
+    for (let y = 0; y < WORLD.height; y += 16) {
+      for (let x = 0; x < WORLD.width; x += 16) {
+        const tone = ((x / 16) * 7 + (y / 16) * 11) % 11;
+        if (tone > 2) continue;
+        ctx.fillStyle = tone === 0 ? "rgba(47,116,70,.24)" : "rgba(255,245,157,.22)";
+        ctx.fillRect(x + 3 + tone * 3, y + 5, tone === 0 ? 5 : 3, 2);
+        if (tone === 0) ctx.fillRect(x + 10, y + 11, 2, 3);
       }
     }
-    ctx.fillStyle = "#4e8e50";
-    ctx.fillRect(0, 0, WORLD.width, 46);
+    ctx.fillStyle = "#39794b";
+    ctx.fillRect(0, 0, WORLD.width, 52);
+    ctx.fillStyle = "#4f9855";
+    for (let x = 0; x < WORLD.width; x += 64) {
+      ctx.fillRect(x, 42 + (x / 64 % 2) * 5, 58, 30);
+      ctx.fillStyle = "#6db263";
+      ctx.fillRect(x + 8, 50 + (x / 64 % 2) * 5, 34, 8);
+      ctx.fillStyle = "#4f9855";
+    }
   }
 
   private drawPaths() {
@@ -590,25 +865,29 @@ export class Game {
     ctx.strokeStyle = "#d9c783";
     ctx.lineWidth = 92;
     ctx.beginPath();
-    ctx.moveTo(150, 790);
-    ctx.lineTo(322, 646);
-    ctx.lineTo(520, 535);
-    ctx.lineTo(682, 535);
-    ctx.lineTo(890, 715);
-    ctx.lineTo(1080, 600);
-    ctx.lineTo(1050, 455);
-    ctx.lineTo(1180, 334);
-    ctx.lineTo(1395, 252);
+    ctx.moveTo(TRAIL_POINTS[0].x, TRAIL_POINTS[0].y);
+    for (const point of TRAIL_POINTS.slice(1)) ctx.lineTo(point.x, point.y);
     ctx.stroke();
-    ctx.strokeStyle = "#eadb9d";
-    ctx.lineWidth = 66;
+    ctx.strokeStyle = "#ead99a";
+    ctx.lineWidth = 64;
     ctx.stroke();
     ctx.restore();
-    for (let i = 0; i < 30; i += 1) {
-      const x = 170 + i * 41;
-      const y = 770 - Math.sin(i * 0.7) * 7;
-      ctx.fillStyle = i % 2 ? "#c8b675" : "#f0dda0";
-      ctx.fillRect(x, y, 10, 5);
+    let pebbleIndex = 0;
+    for (let segment = 0; segment < TRAIL_POINTS.length - 1; segment += 1) {
+      const from = TRAIL_POINTS[segment];
+      const to = TRAIL_POINTS[segment + 1];
+      const segmentLength = distance(from, to);
+      for (let travelled = 28; travelled < segmentLength; travelled += 46) {
+        const t = travelled / segmentLength;
+        const side = pebbleIndex % 2 ? 24 : -28;
+        const nx = -(to.y - from.y) / segmentLength;
+        const ny = (to.x - from.x) / segmentLength;
+        const x = from.x + (to.x - from.x) * t + nx * side;
+        const y = from.y + (to.y - from.y) * t + ny * side;
+        ctx.fillStyle = pebbleIndex % 3 ? "#c7b477" : "#f4e4a8";
+        ctx.fillRect(Math.round(x), Math.round(y), pebbleIndex % 3 === 0 ? 9 : 6, 4);
+        pebbleIndex += 1;
+      }
     }
   }
 
@@ -616,6 +895,10 @@ export class Game {
     const ctx = this.ctx;
     for (let y = 0; y < WORLD.height; y += 16) {
       const center = this.riverCenter(y);
+      ctx.fillStyle = "#3e8958";
+      ctx.fillRect(Math.round(center - 91), y, 182, 17);
+      ctx.fillStyle = "#94ca72";
+      ctx.fillRect(Math.round(center - 83), y, 166, 17);
       ctx.fillStyle = "#2a8fad";
       ctx.fillRect(Math.round(center - 76), y, 152, 17);
       ctx.fillStyle = "#43bed1";
@@ -654,6 +937,8 @@ export class Game {
   }
 
   private drawScenery(now: number) {
+    this.drawTerrainDetails();
+    this.drawSmallLandmarks();
     for (const flower of this.flowers) this.drawFlower(flower, now);
     for (const tree of this.trees) this.drawTree(tree.x, tree.y);
     this.drawWindmill(now);
@@ -664,6 +949,99 @@ export class Game {
     this.drawWiltedFlowers(now);
     this.drawBranchTree();
     this.drawSparkles(now);
+  }
+
+  private drawTerrainDetails() {
+    const ctx = this.ctx;
+    for (const detail of this.terrainDetails) {
+      const x = Math.round(detail.x);
+      const y = Math.round(detail.y);
+      if (detail.variant < 2) {
+        ctx.fillStyle = detail.variant ? "#4b9b59" : "#5dab60";
+        ctx.fillRect(x, y, 2, 7);
+        ctx.fillRect(x - 3, y + 3, 3, 2);
+        ctx.fillRect(x + 2, y + 2, 3, 2);
+      } else {
+        ctx.fillStyle = detail.variant === 2 ? "#a5ad79" : "#d2c98c";
+        ctx.fillRect(x, y + 2, 7, 4);
+        ctx.fillStyle = "rgba(43,92,68,.2)";
+        ctx.fillRect(x + 2, y + 6, 7, 2);
+      }
+    }
+  }
+
+  private drawSmallLandmarks() {
+    const ctx = this.ctx;
+    // Bee boxes make the upper meadow read as a cultivated destination.
+    for (let i = 0; i < 3; i += 1) {
+      const x = 1208 + i * 42;
+      ctx.fillStyle = "#5f4831";
+      ctx.fillRect(x + 4, 409, 24, 6);
+      ctx.fillStyle = "#e7ad48";
+      ctx.fillRect(x, 382, 32, 27);
+      ctx.fillStyle = "#ffe08a";
+      ctx.fillRect(x + 3, 386, 26, 5);
+      ctx.fillStyle = "#4b3a2b";
+      ctx.fillRect(x + 12, 400, 8, 4);
+    }
+    // A low stone line frames the windy ridge without becoming a hard wall.
+    for (let i = 0; i < 7; i += 1) {
+      const x = 706 + i * 43;
+      const y = 202 + (i % 2) * 3;
+      ctx.fillStyle = "#61766b";
+      ctx.fillRect(x, y, 35, 14);
+      ctx.fillStyle = "#8e9e87";
+      ctx.fillRect(x + 4, y - 4, 25, 6);
+    }
+    // Trail sign near the bridge: a readable navigation landmark.
+    ctx.fillStyle = "#6b4a31";
+    ctx.fillRect(688, 602, 8, 48);
+    ctx.fillRect(671, 604, 43, 18);
+    ctx.fillStyle = "#f2cd6f";
+    ctx.fillRect(698, 610, 8, 5);
+  }
+
+  private drawNavigation(now: number) {
+    if (!this.navigationTarget) return;
+    const ctx = this.ctx;
+    const points = [this.playerCenter(), ...this.navigationPath];
+    ctx.save();
+    ctx.globalAlpha = 0.66;
+    for (let segment = 0; segment < points.length - 1; segment += 1) {
+      const from = points[segment];
+      const to = points[segment + 1];
+      const length = distance(from, to);
+      for (let travelled = 18; travelled < length; travelled += 22) {
+        const t = travelled / length;
+        const x = from.x + (to.x - from.x) * t;
+        const y = from.y + (to.y - from.y) * t;
+        ctx.fillStyle = "#fff3a1";
+        ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 4, 4);
+      }
+    }
+    const target = this.navigationTarget;
+    const pulse = this.reducedMotion ? 0 : Math.round(Math.sin(now / 150) * 2);
+    ctx.fillStyle = "rgba(31,74,63,.34)";
+    ctx.fillRect(target.x - 14, target.y + 8, 28, 6);
+    ctx.fillStyle = "#fff1a0";
+    ctx.fillRect(target.x - 14 - pulse, target.y - 2, 7, 4);
+    ctx.fillRect(target.x + 7 + pulse, target.y - 2, 7, 4);
+    ctx.fillRect(target.x - 2, target.y - 14 - pulse, 4, 7);
+    ctx.fillRect(target.x - 2, target.y + 7 + pulse, 4, 7);
+    ctx.restore();
+  }
+
+  private drawInteractionFocus(now: number) {
+    if (!this.hoveredInteraction || this.paused) return;
+    const point = INTERACTION_POINTS[this.hoveredInteraction];
+    const radius = 22 + (this.reducedMotion ? 0 : Math.round(Math.sin(now / 170) * 2));
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "#fff4a4";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([7, 5]);
+    ctx.strokeRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+    ctx.restore();
   }
 
   private drawFlower(flower: Flower, now: number) {
@@ -694,32 +1072,32 @@ export class Game {
   private drawWindmill(now: number) {
     const ctx = this.ctx;
     ctx.fillStyle = "#835d3b";
-    ctx.fillRect(88, 386, 310, 166);
+    ctx.fillRect(88, 578, 310, 166);
     ctx.fillStyle = "#f5d48e";
-    ctx.fillRect(106, 405, 274, 147);
+    ctx.fillRect(106, 597, 274, 147);
     ctx.fillStyle = "#744c34";
-    for (let x = 88; x < 398; x += 32) ctx.fillRect(x, 361 + Math.abs(243 - x) * 0.08, 31, 45);
+    for (let x = 88; x < 398; x += 32) ctx.fillRect(x, 553 + Math.abs(243 - x) * 0.08, 31, 45);
     ctx.fillStyle = "#392c2b";
-    ctx.fillRect(162, 467, 56, 85);
+    ctx.fillRect(162, 659, 56, 85);
     ctx.fillStyle = "#f9c45c";
-    ctx.fillRect(268, 438, 52, 42);
+    ctx.fillRect(268, 630, 52, 42);
     ctx.fillStyle = "#40301f";
-    ctx.fillRect(414, 440, 18, 116);
+    ctx.fillRect(414, 632, 18, 116);
     const angle = this.reducedMotion ? 0 : now / 1800;
     ctx.save();
-    ctx.translate(423, 438);
+    ctx.translate(423, 630);
     ctx.rotate(angle);
     ctx.fillStyle = "#9d6d3b";
     ctx.fillRect(-7, -68, 14, 136);
     ctx.fillRect(-68, -7, 136, 14);
     ctx.restore();
     ctx.fillStyle = "#674126";
-    ctx.fillRect(416, 431, 14, 14);
+    ctx.fillRect(416, 623, 14, 14);
     ctx.fillStyle = "#253c39";
-    ctx.fillRect(388, 510, 46, 35);
+    ctx.fillRect(388, 702, 46, 35);
     ctx.fillStyle = "#f2d078";
     ctx.font = "bold 18px monospace";
-    ctx.fillText("3", 404, 535);
+    ctx.fillText("3", 404, 727);
   }
 
   private drawCottage() {
@@ -877,7 +1255,7 @@ export class Game {
 
   private drawPlayer(now: number) {
     const ctx = this.ctx;
-    const moving = this.keys.size > 0 || this.virtualKeys.size > 0;
+    const moving = this.isMoving;
     const bob = moving && !this.reducedMotion ? Math.round(Math.sin(now / 90) * 2) : 0;
     const x = Math.round(this.player.x);
     const y = Math.round(this.player.y + bob);

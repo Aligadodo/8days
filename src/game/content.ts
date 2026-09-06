@@ -1,7 +1,9 @@
 import type { ClueDefinition, ItemDefinition, ItemId } from "./types";
 
 export const WORLD = { width: 1600, height: 960 } as const;
-export const VIEWPORT = { width: 960, height: 540 } as const;
+// A closer logical camera makes the character and scene props readable, while
+// Game.ts renders this view to a 2x backing buffer for a crisp final image.
+export const VIEWPORT = { width: 800, height: 450 } as const;
 export const PASSCODE = "3142";
 
 export const ITEM_ORDER: ItemId[] = ["journal", "ribbon", "trowel", "water", "key"];
@@ -69,4 +71,3 @@ export const CLUES: ClueDefinition[] = [
     memory: "门口一直留着两双拖鞋，一双给回家的人。",
   },
 ];
-

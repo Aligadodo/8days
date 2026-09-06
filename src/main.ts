@@ -10,7 +10,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span class="wordmark-flower">✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · PLAYABLE PROTOTYPE</small></div></div>
-      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.1</div>
+      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.2</div>
     </header>
 
     <section class="game-frame" aria-label="春日花谷游戏区域">
@@ -64,7 +64,7 @@ app.innerHTML = `
         <section class="drawer-panel" data-panel="settings">
           <label class="setting-row"><div><b>加强危险轮廓</b><small>为风口和坠落区域增加红色边界</small></div><input id="dangerAssist" type="checkbox" /></label>
           <label class="setting-row"><div><b>减少动态效果</b><small>减弱水流、花朵和角色晃动</small></div><input id="reducedMotion" type="checkbox" /></label>
-          <div class="controls-list"><b>键盘操作</b><span><kbd>WASD</kbd> / <kbd>方向键</kbd> 移动</span><span><kbd>E</kbd> 调查　<kbd>F</kbd> 使用</span><span><kbd>1–5</kbd> 选择物品　<kbd>B</kbd> 背包</span><span><kbd>R</kbd> 从头重来</span></div>
+          <div class="controls-list"><b>操作方式</b><span><kbd>左键</kbd> 点地移动，按住可持续跟随</span><span><kbd>左键</kbd> 点击闪光物，自动走近调查</span><span><kbd>右键</kbd> 取消移动　<kbd>B</kbd> 背包</span><span><kbd>WASD</kbd> 备用移动　<kbd>E</kbd> 调查</span></div>
         </section>
       </aside>
 
@@ -74,7 +74,7 @@ app.innerHTML = `
           <span class="chapter-no">03</span>
           <h1>春日花谷</h1>
           <p class="intro-copy">把勿忘我的种子送到山顶小屋。<br>不用走得最快，记得看看沿途的花。</p>
-          <div class="intro-rules"><span><i>移动</i> WASD / 方向键</span><span><i>调查</i> E / 空格</span><span><i>背包</i> B</span></div>
+          <div class="intro-rules"><span><i>移动</i> 左键点地 / 按住</span><span><i>调查</i> 点击闪光目标</span><span><i>备用</i> WASD / E</span></div>
           <button id="startButton" class="big-action">开始今天 <span>→</span></button>
           <small>危险都会提前留下迹象。失败后，你会记得已经发现的事。</small>
         </div>
@@ -114,7 +114,7 @@ app.innerHTML = `
       </div>
     </section>
 
-    <footer class="site-footer"><span><kbd>WASD</kbd> 移动　<kbd>E</kbd> 调查　<kbd>F</kbd> 使用　<kbd>B</kbd> 背包</span><span>原型目标：找到 4 个数字并抵达山顶小屋</span></footer>
+    <footer class="site-footer"><span><kbd>左键</kbd> 点击移动 / 调查　<kbd>右键</kbd> 取消　<kbd>WASD</kbd> 备用</span><span>原型目标：找到 4 个数字并抵达山顶小屋</span></footer>
   </main>
 `;
 

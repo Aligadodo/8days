@@ -48,7 +48,7 @@ button { -webkit-tap-highlight-color: transparent; }
   box-shadow: 0 8px 0 #779f8e, 0 22px 65px rgba(31, 73, 63, .27);
   isolation: isolate;
 }
-#gameCanvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+#gameCanvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; cursor: crosshair; touch-action: none; }
 
 .pixel-panel { border: 3px solid #2c4350; background: rgba(20, 36, 51, .94); color: var(--cream); box-shadow: 4px 4px 0 rgba(37, 68, 69, .36); }
 .hud-top-left { position: absolute; top: 16px; left: 16px; min-width: 155px; height: 58px; display: flex; align-items: center; gap: 10px; padding: 7px 13px; }
@@ -180,7 +180,7 @@ kbd { padding: 2px 5px; border: 1px solid currentColor; background: rgba(255,255
   .quick-slot span { font-size: 18px; }
   .interaction-prompt { bottom: 61px; font-size: 8px; }
   .toast { top: 60px; font-size: 9px; }
-  .touch-controls { display: flex; position: absolute; z-index: 7; inset: auto 10px 11px; justify-content: space-between; align-items: end; pointer-events: none; }
+  .touch-controls { display: none; position: absolute; z-index: 7; inset: auto 10px 11px; justify-content: space-between; align-items: end; pointer-events: none; }
   .dpad { width: 116px; height: 89px; display: grid; grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(2, 36px); gap: 3px; pointer-events: auto; }
   .dpad button, .touch-actions button { border: 2px solid #fff0b1; background: rgba(27, 51, 55, .76); color: #fff6c8; touch-action: none; }
   .dpad button[data-move="up"] { grid-column: 2; }
@@ -192,6 +192,10 @@ kbd { padding: 2px 5px; border: 1px solid currentColor; background: rgba(255,255
   .touch-actions button.primary { background: rgba(230, 166, 60, .86); color: #263f3d; }
   .touch-actions small { display: block; font: 700 7px sans-serif; }
   .touch-controls .dpad, .touch-actions { transform: translateY(-52px); }
+}
+
+@media (max-width: 860px) and (pointer: coarse) {
+  .touch-controls { display: flex; }
 }
 
 @media (max-width: 580px) {
