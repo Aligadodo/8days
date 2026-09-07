@@ -37,7 +37,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .game-frame:fullscreen { width: 100vw; height: 100vh; max-height: none; border: 0; box-shadow: none; aspect-ratio: auto; background: #080e15; }
 .game-frame:fullscreen::after { box-shadow: inset 0 0 0 2px rgba(255,255,255,.1); }
 #gameCanvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; }
-.game-frame:fullscreen #gameCanvas { position: absolute; left: 50%; top: 50%; width: min(100vw, calc(100vh * 16 / 9)); height: min(100vh, calc(100vw * 9 / 16)); transform: translate(-50%, -50%); }
+.game-frame:fullscreen #gameCanvas { width: 100%; height: 100%; }
 .pixel-panel { border: 3px solid var(--line); box-shadow: 4px 4px 0 rgba(7,17,25,.55), inset 0 0 0 2px rgba(255,255,255,.09); }
 
 .hud-top { position: absolute; z-index: 6; top: 16px; left: 16px; right: 16px; display: grid; grid-template-columns: 150px minmax(300px, 610px) 106px; gap: 14px; align-items: start; pointer-events: none; }
@@ -251,7 +251,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 @media (max-width: 620px) {
   .wordmark b { font-size: 13px; }.overlay { padding: 8px; }
   .hud-top { grid-template-columns: 92px 1fr 42px; }.hud-actions { flex-direction: column; }.hud-actions .icon-button { width: 36px; height: 32px; font-size: 16px; }
-  #fullscreenButton { display: none; }.day-card { height: 46px; }.day-card > span { display: none; }.objective-card { min-height: 46px; }.guide-card { grid-template-columns: 1fr; }.guide-card button { justify-self: start; }
+  #fullscreenButton { display: block; }.day-card { height: 46px; }.day-card > span { display: none; }.objective-card { min-height: 46px; }.guide-card { grid-template-columns: 1fr; }.guide-card button { justify-self: start; }
   .quickbar { bottom: 8px; }.quick-slot { width: 42px; height: 36px; }.toast { top: 110px; max-width: 90%; }
   .campaign-card { padding: 13px; }.campaign-copy { padding: 0 0 10px; }.campaign-copy h1 { font-size: 30px; }.level-grid { grid-template-columns: repeat(2, 1fr); }.level-tile { min-height: 82px; }.level-brief { grid-template-columns: 1fr; }.level-brief p { display: none; }
   .puzzle-card { grid-template-columns: 1fr; padding: 16px; }.puzzle-heading, .puzzle-story, .hint-ladder { grid-column: 1; }.hint-ladder { grid-template-columns: 1fr; }.puzzle-heading h2 { font-size: 19px; }.evidence-board p { font-size: 10px; }
@@ -260,4 +260,46 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+/* Exploration HUD: a readable world first, details only on request. */
+.hud-top { grid-template-columns: 128px minmax(200px, 460px) 106px; justify-content: space-between; }
+.objective-card b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.objective-card[aria-expanded="false"] > i { transform: none; }
+.guide-card { grid-template-columns: 1fr auto; font-size: 11px; }
+.guide-card > div { grid-column: 1 / -1; }
+.guide-card button { font-size: 10px; }
+.toast { pointer-events: none; top: auto; bottom: 78px; max-width: min(600px, 70%); font-size: 12px; }
+.sound-caption { pointer-events: none; bottom: 120px; max-width: 65%; }
+.route-help { max-width: 270px; font-size: 9px; bottom: 19px; left: 15px; }
+.quickbar { gap: 5px; }
+.quick-slot { width: 68px; height: 46px; }
+.minimap { position: absolute; z-index: 7; right: 15px; bottom: 15px; width: 182px; background: #182f37e8; border: 1px solid #b0c4af70; border-radius: 5px; overflow: hidden; box-shadow: 0 3px 12px #09202b60; }
+.minimap > button { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border: 0; background: transparent; color: #ecebd5; font-size: 10px; cursor: pointer; }
+.minimap canvas { display: block; width: 100%; aspect-ratio: 16 / 9; cursor: crosshair; touch-action: none; }
+.minimap small { display: block; padding: 4px 7px; font-size: 8px; color: #acc8c4; }
+.minimap.collapsed { width: 132px; }.minimap.collapsed canvas,.minimap.collapsed small { display: none; }
+.code-memories { margin: 0 0 16px; text-align: left; font-size: 11px; padding: 10px; background: #e4eddf; border: 1px solid #9faf8d; }
+.code-memories summary { cursor: pointer; color: #3d6655; font-weight: 700; }
+.code-memories > div { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }
+.code-memories span { display: flex; flex-direction: column; padding: 6px; background: #faf7e8; }.code-memories small { font-size: 9px; }
+.check-action:disabled { opacity: .45; cursor: default; }
+.qa-toolbar { display:flex; justify-content:center; flex-wrap:wrap; gap:6px; padding:8px; }.qa-toolbar button { font:11px system-ui; background:#304b5a; border:1px solid #627e87; padding:5px 9px; cursor:pointer; }
+@media (max-width: 900px) {
+  .hud-top { grid-template-columns: 98px minmax(130px,1fr) 86px; }
+  .minimap { width: 154px; right: 10px; bottom: 10px; }
+  .quick-slot { width: 46px; height: 37px; }
+}
+@media (max-width: 620px) {
+  .app-shell { padding: 5px; }.site-header { height: 45px; }
+  .game-frame { width: 100%; height: calc(100dvh - 64px); min-height: 460px; aspect-ratio: auto; }
+  .game-frame:fullscreen { height: 100dvh; min-height: 0; }
+  .hud-top { grid-template-columns: 67px minmax(100px,1fr) 38px; gap: 5px; top: 7px; left: 7px; right: 7px; }
+  .objective-card { grid-template-columns: 1fr 10px; gap: 3px; }.objective-star { display: none; }
+  .objective-card b { font-size: 10px; }.day-card { padding: 5px; }.day-card b { font-size: 6px; }.day-card small { font-size: 9px; }
+  .guide-card { position: absolute; top: 58px; left: 0; right: 0; grid-template-columns: 1fr auto; }
+  .minimap { width: 134px; bottom: 8px; right: 8px; }.minimap small { font-size: 7px; }
+  .quickbar { left: 9px; transform: none; bottom: 8px; gap: 3px; }.quick-slot { width: 35px; height: 33px; }
+  .toast { max-width: 90%; bottom: 143px; top: auto; font-size: 11px; }.sound-caption { bottom: 114px; max-width: 92%; font-size: 10px; }
+  .puzzle-card { max-height: 100%; }.code-card,.death-card,.complete-card { padding: 22px 17px; }
 }

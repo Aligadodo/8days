@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.0 - 2026-09-07
+
+- Replaced mixed-facing walking frames with a consistent 16-frame traveler atlas and stable direction hysteresis.
+- Rebuilt navigation around eight authored floor plans, direct line-of-sight movement, 8-neighbor A*, corner clearance and string-pulled routes.
+- Replaced all 56 abstract interaction markers with reusable world sprites; added alpha-hit testing, hover-only silhouette outlines and feet-based depth sorting.
+- Added visible cat rescue, snowman/monitor/fern states, actor responses and contextual synthesized sounds.
+- Added a collapsible minimap with persistent explored fog, player heading, viewport, discovered objects, route and nearby hazard indicators.
+- Unified hazard geometry; movement can wait at an active danger boundary and resume the original destination.
+- Added main-puzzle checkpoints, persistent shared hint stages, local final-code memory cards, and per-day stamp identity preserving repeated characters.
+- Updated full-screen and portrait camera sizing, collapsed guidance, five-slot pocket access, and Escape/Enter actions.
+- Shuffled puzzle choices deterministically and require full sequence submission instead of exposing per-step correctness.
+- Re-authored waterfall stairs and made its stepping-stone puzzle reveal a physical, navigable crossing.
+- Added automated navigation, eight-day interaction/progression, persistence and movement regression tests, plus an implementation-vs-roadmap design audit.
+
 ## 0.9.1 - 2026-09-07
 
 - Replaced the single-sprite sliding motion with distance-driven front and back walking frames while retaining the established yellow-coat traveler identity.

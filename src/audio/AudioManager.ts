@@ -1,6 +1,9 @@
 export type AudioBus = "music" | "effects" | "ambience";
 
 export type AudioEventId =
+  | "animal.cat"
+  | "interaction.phone"
+  | "interaction.camera"
   | "ui.click.soft"
   | "ui.drawer.open"
   | "ui.drawer.close"
@@ -145,6 +148,16 @@ export class AudioManager {
     this.lastPlayed.set(cue.id, now);
 
     switch (cue.id) {
+      case "animal.cat":
+        this.sweep(700, 1020, 0.12, 0.025, pan, "sine");
+        this.sweep(990, 590, 0.25, 0.026, pan, "sine");
+        break;
+      case "interaction.phone":
+        this.chord([350, 440], 0.16, 0.022, pan);
+        break;
+      case "interaction.camera":
+        this.noise(0.065, 0.035, 3400, pan);
+        break;
       case "ui.click.soft":
         this.tone(520, 0.045, 0.035, "square", 0, pan);
         break;

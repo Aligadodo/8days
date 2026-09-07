@@ -1,1114 +1,1297 @@
-import { getLevel, LEVELS } from "./levels";
+import { LEVELS, getLevel } from "./levels";
+import { Navigation, WORLD, clamp, distance, inHazard, p } from "./navigation";
+import { WORLDS } from "./worldDesign";
+import { SpriteAtlas } from "./SpriteAtlas";
+import { entitiesFor, type Entity } from "./entities";
 import type {
   CampaignHooks,
   CampaignSave,
   CampaignView,
   HazardSpec,
-  LevelDefinition,
-  PersistedLevelState,
   Point,
   PuzzleSpec,
-  Rect,
-  SideTaskSpec,
 } from "./types";
 
-const VIEW_WIDTH = 960;
-const VIEW_HEIGHT = 540;
-const WORLD_WIDTH = 1600;
-const WORLD_HEIGHT = 900;
-const GRID = 32;
 const SAVE_KEY = "one-more-day:campaign:v2";
-
-interface Player extends Point {
-  radius: number;
-  facing: 1 | -1;
-  verticalFacing: -1 | 0 | 1;
-}
-
-type FocusTarget = { type: "puzzle" | "side" | "exit"; id: string };
-type HeroFrame = "idle" | "walk-contact" | "walk-pass" | "back-idle" | "back-contact" | "back-pass" | "interact";
-
+const FOG = 32,
+  FOG_COLS = 50,
+  FOG_ROWS = 29,
+  VISION = 205;
+type Facing = "down" | "right" | "up" | "left";
 interface Footprint extends Point {
-  age: number;
   life: number;
-  side: 1 | -1;
-  directionX: number;
-  directionY: number;
+  angle: number;
 }
-
-const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const point = (x: number, y: number): Point => ({ x, y });
-const inside = (point: Point, area: Rect, padding = 0) =>
-  point.x >= area.x - padding && point.x <= area.x + area.width + padding && point.y >= area.y - padding && point.y <= area.y + area.height + padding;
-const distanceToSegment = (candidate: Point, start: Point, end: Point) => {
-  const dx = end.x - start.x; const dy = end.y - start.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) return distance(candidate, start);
-  const t = clamp(((candidate.x - start.x) * dx + (candidate.y - start.y) * dy) / lengthSquared, 0, 1);
-  return distance(candidate, point(start.x + dx * t, start.y + dy * t));
-};
-
 export class CampaignGame {
-  readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
-  private readonly hooks: CampaignHooks;
+  private readonly atlas = new SpriteAtlas();
+  private readonly images = new Map<string, HTMLImageElement>();
+  private readonly events = new AbortController();
+  private readonly observer: ResizeObserver;
+  private readonly minimap: HTMLCanvasElement;
+  private readonly miniContext: CanvasRenderingContext2D;
+  private nav = new Navigation(WORLDS[0].regions, WORLDS[0].blockers);
   private levelIndex = 0;
-  private level: LevelDefinition = LEVELS[0];
-  private player: Player = { ...LEVELS[0].playerStart, radius: 14, facing: 1, verticalFacing: 1 };
-  private camera = { x: 0, y: 0 };
+  private level = LEVELS[0];
+  private entities: Entity[] = entitiesFor(this.level);
+  private player = { ...this.level.playerStart };
+  private facing: Facing = "down";
+  private camera = p(0, 0);
+  private width = 960;
+  private height = 540;
   private path: Point[] = [];
-  private focus: FocusTarget | null = null;
-  private hovered: FocusTarget | null = null;
+  private focus: Entity | null = null;
+  private hovered: Entity | null = null;
+  private pointer: Point | null = null;
+  private pending: Entity | null = null;
+  private actionTime = 0;
+  private destination: Point | null = null;
+  private destinationAge = 0;
+  private waiting = false;
+  private routeRetry = 0;
+  private speed = 0;
+  private stride = 0;
+  private stepAt = 0;
+  private footsteps: Footprint[] = [];
   private solved = new Set<string>();
   private sideTasks = new Set<string>();
-  private inventory: string[] = [];
-  private paused = true;
-  private running = false;
-  private dead = false;
-  private completed = false;
-  private elapsedSeconds = 0;
+  private doneAt = new Map<string, number>();
+  private explored = new Set<number>();
+  private discovered = new Set<string>();
+  private checkpoint = { ...this.player };
+  private hintStages: Record<string, number> = {};
   private hintCount = 0;
   private deathCount = 0;
+  private elapsedSeconds = 0;
+  private graceUntil = 5;
+  private lastView = -1;
   private lastFrame = performance.now();
-  private lastViewSecond = -1;
-  private warnedCycles = new Map<string, number>();
-  private save: CampaignSave;
+  private running = true;
+  private started = false;
+  private paused = true;
+  private dead = false;
+  private completed = false;
   private dangerAssist = false;
   private reducedMotion = false;
-  private pointerDown = false;
-  private lastPointerRouteAt = 0;
-  private readonly mapImages = new Map<string, HTMLImageElement>();
-  private readonly heroSprites = new Map<HeroFrame, HTMLCanvasElement>();
-  private movementSpeed = 0;
-  private movementDirection = point(1, 0);
-  private strideDistance = 0;
-  private nextFootstepDistance = 16;
-  private footprints: Footprint[] = [];
-  private interactionUntil = 0;
-
-  constructor(canvas: HTMLCanvasElement, hooks: CampaignHooks) {
-    this.canvas = canvas;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas 2D context unavailable");
-    this.ctx = context;
-    this.hooks = hooks;
+  private dragging = false;
+  private dragOrigin = p(0, 0);
+  private routeAt = 0;
+  private lastBlockedAt = -10;
+  private markedUntil = 0;
+  private warned = new Map<string, number>();
+  private keys = new Set<string>();
+  private save: CampaignSave;
+  constructor(
+    readonly canvas: HTMLCanvasElement,
+    private readonly hooks: CampaignHooks,
+  ) {
+    this.ctx = canvas.getContext("2d")!;
+    this.minimap = document.getElementById(
+      "minimapCanvas",
+    ) as HTMLCanvasElement;
+    this.miniContext = this.minimap.getContext("2d")!;
     this.save = this.loadSave();
-    this.preloadAssets();
+    LEVELS.forEach((level) => {
+      const image = new Image();
+      image.src = level.background;
+      this.images.set(level.id, image);
+    });
+    this.atlas.ready.catch(() =>
+      hooks.onToast("部分角色素材未载入，请刷新重试。", "danger"),
+    );
+    this.observer = new ResizeObserver(() => this.resize());
+    this.observer.observe(canvas);
     this.resize();
     this.bindInput();
-    window.addEventListener("resize", () => this.resize());
-    this.running = true;
     requestAnimationFrame((time) => this.frame(time));
   }
-
   getSave() {
     return structuredClone(this.save);
   }
-
   getLevel() {
     return this.level;
   }
-
   getView(): CampaignView {
-    const currentPuzzle = this.getCurrentPuzzle();
-    const objective = currentPuzzle
-      ? `${currentPuzzle.icon} ${currentPuzzle.title}：${currentPuzzle.prompt}`
-      : this.solved.size === this.level.puzzles.length
-        ? `前往${this.level.landmarks.at(-1)?.title ?? "终点"}，按符号顺序重组口令`
-        : this.level.goal;
+    const currentPuzzle = this.currentPuzzle();
     return {
       levelIndex: this.levelIndex,
       level: this.level,
       solved: [...this.solved],
       sideTasks: [...this.sideTasks],
-      inventory: [...this.inventory],
+      inventory: this.level.puzzles
+        .filter((q) => this.solved.has(q.id))
+        .map((q) => q.rewardItem),
       currentPuzzle,
-      objective,
+      objective: currentPuzzle
+        ? `调查 · ${currentPuzzle.title}`
+        : "前往终点，重组今天的四段记忆",
       completed: this.completed,
       deaths: this.deathCount,
       hintsUsed: this.hintCount,
       elapsedSeconds: this.elapsedSeconds,
     };
   }
-
   startLevel(index: number, resetRun = false) {
-    this.levelIndex = clamp(Math.floor(index), 0, LEVELS.length - 1);
+    this.started = true;
+    this.levelIndex = clamp(Math.floor(index), 0, 7);
     this.level = getLevel(this.levelIndex);
-    const persisted = this.save.levels[this.level.id];
-    this.solved = new Set(resetRun ? [] : persisted?.solved ?? []);
-    this.sideTasks = new Set(resetRun ? [] : persisted?.sideTasks ?? []);
-    this.inventory = this.level.puzzles.filter((puzzle) => this.solved.has(puzzle.id)).map((puzzle) => puzzle.rewardItem);
-    this.hintCount = resetRun ? 0 : persisted?.hintsUsed ?? 0;
-    this.deathCount = resetRun ? 0 : persisted?.deaths ?? 0;
+    const world = WORLDS[this.levelIndex];
+    this.entities = entitiesFor(this.level);
+    const saved = resetRun ? undefined : this.save.levels[this.level.id];
+    this.solved = new Set(saved?.solved ?? []);
+    this.sideTasks = new Set(saved?.sideTasks ?? []);
+    this.hintStages = { ...saved?.hintStages };
+    this.nav = new Navigation(
+      world.regions.filter((r) => !r.requires || this.solved.has(r.requires)),
+      world.blockers,
+    );
+    this.hintCount = saved?.hintsUsed ?? 0;
+    this.deathCount = saved?.deaths ?? 0;
+    this.explored = new Set(
+      (saved?.explored ?? []).filter(
+        (n) => Number.isInteger(n) && n >= 0 && n < FOG_COLS * FOG_ROWS,
+      ),
+    );
+    this.discovered.clear();
+    this.checkpoint =
+      saved?.checkpoint && this.nav.isWalkable(saved.checkpoint)
+        ? { ...saved.checkpoint }
+        : { ...this.level.playerStart };
+    this.player = { ...this.checkpoint };
     this.elapsedSeconds = 0;
-    this.lastViewSecond = -1;
+    this.graceUntil = 5;
+    this.lastView = -1;
     this.completed = false;
     this.dead = false;
     this.paused = false;
-    this.path = [];
-    this.focus = null;
-    this.player = { ...this.level.playerStart, radius: 14, facing: 1, verticalFacing: 1 };
-    this.resetMotion();
-    this.camera.x = clamp(this.player.x - VIEW_WIDTH / 2, 0, WORLD_WIDTH - VIEW_WIDTH);
-    this.camera.y = clamp(this.player.y - VIEW_HEIGHT / 2, 0, WORLD_HEIGHT - VIEW_HEIGHT);
-    this.warnedCycles.clear();
-    this.persistLevel();
+    this.facing = "down";
+    this.doneAt.clear();
+    this.warned.clear();
+    this.cancel();
+    this.footsteps = [];
+    this.hovered = null;
+    this.pointer = null;
+    this.reveal();
+    this.centerCamera();
+    this.persist();
     this.emitView();
-    this.hooks.onToast(`DAY ${String(this.level.day).padStart(2, "0")} · ${this.level.name}`, "success");
-    this.hooks.onAudio({ id: "music.spring.intro", caption: `${this.level.name}开始` });
+    this.hooks.onToast(
+      `DAY ${this.level.day} · ${this.level.name}。鼠标停在物件上时，会显示细光边。`,
+    );
+    this.hooks.onAudio({ id: "music.spring.intro" });
   }
-
   setPaused(paused: boolean) {
     this.paused = paused;
-    this.path = paused ? [] : this.path;
-    if (paused) this.movementSpeed = 0;
+    if (paused) {
+      this.cancel();
+      this.keys.clear();
+    } else this.graceUntil = this.elapsedSeconds + 2;
   }
-
   setDangerAssist(enabled: boolean) {
     this.dangerAssist = enabled;
   }
-
   setReducedMotion(enabled: boolean) {
     this.reducedMotion = enabled;
   }
-
   solvePuzzle(id: string) {
-    const puzzle = this.level.puzzles.find((candidate) => candidate.id === id);
-    if (!puzzle || this.solved.has(id) || !this.isPuzzleAvailable(puzzle)) return;
+    const puzzle = this.level.puzzles.find((q) => q.id === id);
+    if (!puzzle || this.solved.has(id) || !this.available(puzzle)) return;
     this.solved.add(id);
-    this.inventory.push(puzzle.rewardItem);
-    this.focus = null;
-    this.path = [];
-    this.persistLevel();
-    this.hooks.onAudio({ id: "puzzle.solve", caption: `谜题解开：${puzzle.title}` });
-    this.hooks.onToast(puzzle.solvedText, "success");
+    this.doneAt.set(id, this.elapsedSeconds);
+    this.checkpoint = { ...this.player };
+    const world = WORLDS[this.levelIndex];
+    this.nav = new Navigation(
+      world.regions.filter((r) => !r.requires || this.solved.has(r.requires)),
+      world.blockers,
+    );
+    this.persist();
+    this.emitView();
+    this.hooks.onToast(`${puzzle.solvedText} · 已记住此处位置`, "success");
+    this.hooks.onAudio({
+      id: id === "mill" ? "puzzle.mill.solve" : "puzzle.solve",
+    });
+  }
+  hintStage(id: string) {
+    return this.hintStages[id] ?? 0;
+  }
+  registerHint(id?: string, stage?: number) {
+    if (id && stage !== undefined) {
+      const old = this.hintStages[id] ?? 0;
+      if (stage <= old) return;
+      this.hintCount += stage - old;
+      this.hintStages[id] = stage;
+    } else this.hintCount++;
+    this.persist();
     this.emitView();
   }
-
-  registerHint() {
-    this.hintCount += 1;
-    this.persistLevel();
-    this.emitView();
+  locateCurrent() {
+    this.markedUntil = this.elapsedSeconds + 8;
+    this.hooks.onToast(
+      "目标已在小地图标记 8 秒；阴影区域需要先探索。正门、桥面和步道可以通行。",
+    );
   }
-
   submitFinal(code: string) {
-    if (this.solved.size !== this.level.puzzles.length) return false;
-    if (code !== this.level.code) {
-      this.hooks.onAudio({ id: "puzzle.reset", caption: "口令顺序不对" });
-      return false;
-    }
+    if (this.solved.size !== 4 || code !== this.level.code) return false;
     this.completed = true;
     this.paused = true;
-    if (!this.save.completed.includes(this.level.id)) this.save.completed.push(this.level.id);
-    if (!this.save.stamps.includes(this.level.stamp)) this.save.stamps.push(this.level.stamp);
-    this.save.unlocked = Math.max(this.save.unlocked, Math.min(LEVELS.length, this.levelIndex + 2));
-    this.persistLevel();
-    this.hooks.onAudio({ id: "achievement.unlock", caption: `获得日记印章：${this.level.stamp}` });
+    if (!this.save.completed.includes(this.level.id))
+      this.save.completed.push(this.level.id);
+    this.save.stamps = LEVELS.filter((level) =>
+      this.save.completed.includes(level.id),
+    ).map((level) => level.stamp);
+    this.save.unlocked = Math.max(
+      this.save.unlocked,
+      Math.min(8, this.levelIndex + 2),
+    );
+    this.persist();
     this.emitView();
+    this.hooks.onAudio({ id: "achievement.unlock" });
     this.hooks.onComplete(this.level, this.getView());
     return true;
   }
-
   restartAfterDeath() {
     this.dead = false;
     this.paused = false;
-    this.path = [];
-    this.focus = null;
-    this.player = { ...this.level.playerStart, radius: 14, facing: 1, verticalFacing: 1 };
-    this.resetMotion();
-    this.camera.x = clamp(this.player.x - VIEW_WIDTH / 2, 0, WORLD_WIDTH - VIEW_WIDTH);
-    this.camera.y = clamp(this.player.y - VIEW_HEIGHT / 2, 0, WORLD_HEIGHT - VIEW_HEIGHT);
+    this.cancel();
+    this.player = { ...this.checkpoint };
+    this.graceUntil = this.elapsedSeconds + 6;
+    this.centerCamera();
     this.emitView();
   }
-
   saveNow() {
-    this.persistLevel();
+    this.persist();
     return new Date();
   }
-
   resetCampaignSave() {
-    this.save = { version: 2, unlocked: 1, completed: [], stamps: [], levels: {} };
+    this.started = false;
+    this.paused = true;
+    this.save = {
+      version: 2,
+      unlocked: 1,
+      completed: [],
+      stamps: [],
+      levels: {},
+    };
+    this.cancel();
     this.solved.clear();
     this.sideTasks.clear();
-    this.inventory = [];
-    this.hintCount = 0;
-    this.deathCount = 0;
-    this.completed = false;
+    this.explored.clear();
+    this.hintStages = {};
     localStorage.removeItem(SAVE_KEY);
   }
-
   destroy() {
     this.running = false;
+    this.events.abort();
+    this.observer.disconnect();
   }
-
-  private preloadAssets() {
-    for (const level of LEVELS) {
-      if (this.mapImages.has(level.background)) continue;
-      const image = new Image();
-      image.decoding = "async";
-      image.src = level.background;
-      this.mapImages.set(level.background, image);
-    }
-
-    const heroFrames: Array<[HeroFrame, string]> = [
-      ["idle", "/assets/hero-chibi.png"],
-      ["walk-contact", "/assets/hero-walk-contact.png"],
-      ["walk-pass", "/assets/hero-walk-pass.png"],
-      ["back-idle", "/assets/hero-back-idle.png"],
-      ["back-contact", "/assets/hero-back-walk-contact.png"],
-      ["back-pass", "/assets/hero-back-walk-pass.png"],
-      ["interact", "/assets/hero-interact.png"],
-    ];
-    heroFrames.forEach(([frame, source]) => this.loadHeroSprite(frame, source));
+  private available(puzzle: PuzzleSpec) {
+    return (puzzle.requires ?? []).every((id) => this.solved.has(id));
   }
-
-  private loadHeroSprite(frame: HeroFrame, source: string) {
-    const hero = new Image();
-    hero.decoding = "async";
-    hero.onload = () => {
-      const keyed = document.createElement("canvas");
-      keyed.width = hero.naturalWidth;
-      keyed.height = hero.naturalHeight;
-      const keyedContext = keyed.getContext("2d", { willReadFrequently: true });
-      if (!keyedContext) return;
-      keyedContext.drawImage(hero, 0, 0);
-      const pixels = keyedContext.getImageData(0, 0, keyed.width, keyed.height);
-      let minX = keyed.width; let minY = keyed.height; let maxX = 0; let maxY = 0;
-      for (let y = 0; y < keyed.height; y += 1) {
-        for (let x = 0; x < keyed.width; x += 1) {
-          const index = (y * keyed.width + x) * 4;
-          const red = pixels.data[index]; const green = pixels.data[index + 1]; const blue = pixels.data[index + 2];
-          const magenta = red > 145 && blue > 145 && red - green > 58 && blue - green > 58;
-          if (magenta) pixels.data[index + 3] = 0;
-          else if (pixels.data[index + 3] > 0) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
-        }
-      }
-      keyedContext.putImageData(pixels, 0, 0);
-      if (maxX <= minX || maxY <= minY) return;
-      const trimmed = document.createElement("canvas");
-      trimmed.width = maxX - minX + 1;
-      trimmed.height = maxY - minY + 1;
-      trimmed.getContext("2d")?.drawImage(keyed, minX, minY, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height);
-      this.heroSprites.set(frame, trimmed);
-    };
-    hero.src = source;
-  }
-
-  private resetMotion() {
-    this.movementSpeed = 0;
-    this.movementDirection = point(1, 0);
-    this.strideDistance = 0;
-    this.nextFootstepDistance = 16;
-    this.footprints = [];
-    this.interactionUntil = 0;
-  }
-
-  private bindInput() {
-    this.canvas.addEventListener("pointerdown", (event) => {
-      if (event.button === 2) {
-        this.cancelPath();
-        return;
-      }
-      this.pointerDown = true;
-      this.lastPointerRouteAt = event.timeStamp;
-      this.canvas.setPointerCapture(event.pointerId);
-      this.handlePointer(event, true);
-    });
-    this.canvas.addEventListener("pointermove", (event) => {
-      const world = this.eventToWorld(event);
-      this.hovered = this.findTarget(world, 45);
-      this.canvas.style.cursor = this.hovered ? "pointer" : "crosshair";
-      if (this.pointerDown && !this.hovered && !this.paused && event.timeStamp - this.lastPointerRouteAt >= 120) {
-        this.lastPointerRouteAt = event.timeStamp;
-        this.handlePointer(event, false);
-      }
-    });
-    this.canvas.addEventListener("pointerup", (event) => {
-      this.pointerDown = false;
-      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
-    });
-    this.canvas.addEventListener("pointercancel", () => { this.pointerDown = false; });
-    this.canvas.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      this.cancelPath();
-    });
-    window.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") this.cancelPath();
-      if (this.paused || this.dead) return;
-      if (event.key.toLowerCase() === "e") {
-        const nearby = this.findTarget(this.player, 74);
-        if (nearby) this.interact(nearby);
-        else this.hooks.onToast("附近没有可调查的物件。带光边的目标可以点击。", "danger");
-        return;
-      }
-      const keyVectors: Record<string, Point> = {
-        w: point(0, -1), a: point(-1, 0), s: point(0, 1), d: point(1, 0),
-        ArrowUp: point(0, -1), ArrowLeft: point(-1, 0), ArrowDown: point(0, 1), ArrowRight: point(1, 0),
-      };
-      const vector = keyVectors[event.key];
-      if (!vector) return;
-      const target = point(this.player.x + vector.x * 80, this.player.y + vector.y * 80);
-      this.setDestination(target, null);
-    });
-  }
-
-  private handlePointer(event: PointerEvent, allowInteraction: boolean) {
-    if (this.paused || this.dead) return;
-    const world = this.eventToWorld(event);
-    const target = allowInteraction ? this.findTarget(world, 48) : null;
-    if (target) {
-      const position = this.targetPosition(target);
-      this.setDestination(position, target);
-      return;
-    }
-    this.setDestination(world, null);
-  }
-
-  private cancelPath() {
-    this.path = [];
-    this.focus = null;
-    this.hooks.onAudio({ id: "ui.click.soft" });
-  }
-
-  private setDestination(target: Point, focus: FocusTarget | null) {
-    const bounded = point(clamp(target.x, 75, WORLD_WIDTH - 75), clamp(target.y, 75, WORLD_HEIGHT - 75));
-    const route = this.findPath(this.player, bounded);
-    if (route.length === 0) {
-      this.hooks.onToast("那里暂时走不过去，换一侧试试。", "danger");
-      this.hooks.onAudio({ id: "nav.route.blocked", caption: "路线被挡住" });
-      return;
-    }
-    this.path = route;
-    this.focus = focus;
-    this.hooks.onAudio({ id: "nav.route.accept" });
-  }
-
-  private eventToWorld(event: PointerEvent): Point {
-    const bounds = this.canvas.getBoundingClientRect();
-    return point(
-      this.camera.x + ((event.clientX - bounds.left) / bounds.width) * VIEW_WIDTH,
-      this.camera.y + ((event.clientY - bounds.top) / bounds.height) * VIEW_HEIGHT,
+  private currentPuzzle() {
+    return (
+      this.level.puzzles.find(
+        (q) => !this.solved.has(q.id) && this.available(q),
+      ) ?? null
     );
   }
-
-  private findTarget(world: Point, radius: number): FocusTarget | null {
-    const puzzle = this.level.puzzles.find((candidate) => distance(world, candidate.position) <= radius);
-    if (puzzle) return { type: "puzzle", id: puzzle.id };
-    const side = this.level.sideTasks.find((candidate) => distance(world, candidate.position) <= radius);
-    if (side) return { type: "side", id: side.id };
-    if (distance(world, this.level.exit) <= radius + 10) return { type: "exit", id: "exit" };
-    return null;
+  private emitView() {
+    this.hooks.onView(this.getView());
   }
-
-  private targetPosition(target: FocusTarget) {
-    if (target.type === "exit") return this.level.exit;
-    if (target.type === "puzzle") return this.level.puzzles.find((puzzle) => puzzle.id === target.id)?.position ?? this.player;
-    return this.level.sideTasks.find((side) => side.id === target.id)?.position ?? this.player;
+  private resize() {
+    const rect = this.canvas.getBoundingClientRect(),
+      ratio = rect.width / Math.max(1, rect.height);
+    this.width = ratio < 1 ? Math.min(560, 900 * ratio) : 960;
+    this.height = this.width / ratio;
+    const scale = Math.min(2, window.devicePixelRatio || 1);
+    this.canvas.width = Math.round(rect.width * scale);
+    this.canvas.height = Math.round(rect.height * scale);
+    this.centerCamera();
   }
-
-  private interact(target: FocusTarget) {
-    this.interactionUntil = performance.now() / 1000 + 0.52;
-    this.movementSpeed = 0;
-    if (target.type === "exit") {
-      if (this.solved.size < this.level.puzzles.length) {
-        const missing = this.level.puzzles.length - this.solved.size;
-        this.hooks.onToast(`终点还缺 ${missing} 段记忆。跟随金色光标继续调查。`, "danger");
-        this.hooks.onAudio({ id: "interaction.blocked", caption: "终点还没有准备好" });
+  private centerCamera() {
+    this.camera = p(
+      clamp(
+        this.player.x - this.width / 2,
+        0,
+        Math.max(0, WORLD.width - this.width),
+      ),
+      clamp(
+        this.player.y - this.height / 2,
+        0,
+        Math.max(0, WORLD.height - this.height),
+      ),
+    );
+  }
+  private worldPoint(event: PointerEvent) {
+    const rect = this.canvas.getBoundingClientRect();
+    return p(
+      ((event.clientX - rect.left) / rect.width) * this.width + this.camera.x,
+      ((event.clientY - rect.top) / rect.height) * this.height + this.camera.y,
+    );
+  }
+  private bindInput() {
+    const signal = this.events.signal;
+    this.canvas.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (this.paused || this.dead) return;
+        this.canvas.focus();
+        if (event.button === 2) {
+          this.cancel();
+          return;
+        }
+        if (event.button !== 0) return;
+        this.dragging = true;
+        this.dragOrigin = p(event.clientX, event.clientY);
+        this.canvas.setPointerCapture(event.pointerId);
+        this.pointer = p(event.clientX, event.clientY);
+        const q = this.worldPoint(event),
+          entity = this.hit(q);
+        this.navigate(entity ? this.entityPosition(entity) : q, entity, true);
+      },
+      { signal },
+    );
+    this.canvas.addEventListener(
+      "pointermove",
+      (event) => {
+        this.pointer = p(event.clientX, event.clientY);
+        this.hovered = this.hit(this.worldPoint(event));
+        this.canvas.style.cursor = this.hovered ? "pointer" : "default";
+        if (
+          this.dragging &&
+          !this.focus &&
+          distance(this.dragOrigin, p(event.clientX, event.clientY)) > 9 &&
+          performance.now() - this.routeAt > 140
+        ) {
+          this.routeAt = performance.now();
+          this.navigate(this.worldPoint(event), null, false);
+        }
+      },
+      { signal },
+    );
+    const release = () => {
+      this.dragging = false;
+    };
+    this.canvas.addEventListener("pointerup", release, { signal });
+    this.canvas.addEventListener("pointercancel", release, { signal });
+    this.canvas.addEventListener(
+      "pointerleave",
+      () => {
+        this.pointer = null;
+        this.hovered = null;
+      },
+      { signal },
+    );
+    this.canvas.addEventListener(
+      "contextmenu",
+      (event) => event.preventDefault(),
+      { signal },
+    );
+    window.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          this.paused ||
+          this.dead ||
+          event.target instanceof HTMLInputElement
+        )
+          return;
+        const key = event.key.toLowerCase();
+        if (
+          [
+            "w",
+            "a",
+            "s",
+            "d",
+            "arrowup",
+            "arrowleft",
+            "arrowdown",
+            "arrowright",
+          ].includes(key)
+        ) {
+          event.preventDefault();
+          if (!this.keys.has(key)) {
+            this.keys.add(key);
+            this.cancel();
+          }
+        }
+        if (key === "e" && !event.repeat) {
+          const entity = this.entities
+            .filter((q) => distance(this.entityPosition(q), this.player) < 95)
+            .sort(
+              (a, b) =>
+                distance(this.entityPosition(a), this.player) -
+                distance(this.entityPosition(b), this.player),
+            )[0];
+          if (entity) this.navigate(this.entityPosition(entity), entity, true);
+        }
+        if (key === "escape") this.cancel();
+      },
+      { signal },
+    );
+    window.addEventListener(
+      "keyup",
+      (event) => {
+        if (this.keys.delete(event.key.toLowerCase()) && !this.keys.size)
+          this.cancel();
+      },
+      { signal },
+    );
+    window.addEventListener(
+      "blur",
+      () => {
+        this.keys.clear();
+        this.dragging = false;
+        this.cancel();
+      },
+      { signal },
+    );
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        this.lastFrame = performance.now();
+        if (document.hidden) {
+          this.keys.clear();
+          this.cancel();
+          this.persist();
+        }
+      },
+      { signal },
+    );
+    window.addEventListener("pagehide", () => this.persist(), { signal });
+    this.minimap.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (this.paused) return;
+        event.preventDefault();
+        const rect = this.minimap.getBoundingClientRect(),
+          q = p(
+            ((event.clientX - rect.left) / rect.width) * 1600,
+            ((event.clientY - rect.top) / rect.height) * 900,
+          );
+        if (!this.seen(q)) {
+          this.hooks.onToast("这里还没有探索；先走到阴影边缘看看。");
+          return;
+        }
+        const target = this.entities
+          .filter((e) => this.discovered.has(e.id))
+          .find((e) => distance(this.entityPosition(e), q) < 65);
+        this.navigate(
+          target ? this.entityPosition(target) : q,
+          target ?? null,
+          true,
+        );
+      },
+      { signal },
+    );
+  }
+  private cancel() {
+    this.path = [];
+    this.focus = null;
+    this.pending = null;
+    this.destination = null;
+    this.speed = 0;
+    this.waiting = false;
+    this.dragging = false;
+  }
+  private hit(q: Point) {
+    return (
+      [...this.entities]
+        .sort((a, b) => this.entityPosition(b).y - this.entityPosition(a).y)
+        .find((entity) => {
+          const pos = this.entityPosition(entity);
+          return this.atlas.hit(
+            entity.atlas,
+            this.entityFrame(entity),
+            entity.height,
+            q.x - pos.x,
+            q.y - pos.y,
+          );
+        }) ?? null
+    );
+  }
+  private done(entity: Entity) {
+    return entity.type === "puzzle"
+      ? this.solved.has(entity.id)
+      : entity.type === "side"
+        ? this.sideTasks.has(entity.id)
+        : this.solved.size === 4;
+  }
+  private entityFrame(entity: Entity) {
+    return this.done(entity) && entity.doneFrame !== undefined
+      ? entity.doneFrame
+      : entity.frame;
+  }
+  private entityPosition(entity: Entity) {
+    const position = p(entity.x, entity.y);
+    if (!this.done(entity)) return position;
+    const progress = this.reducedMotion
+      ? 1
+      : clamp(
+          (this.elapsedSeconds - (this.doneAt.get(entity.id) ?? -10)) / 0.9,
+          0,
+          1,
+        );
+    if (entity.id === "help-cat") {
+      position.x -= 40 * progress;
+      position.y -= 9 * progress;
+    }
+    if (entity.id === "bee") {
+      position.x += 28 * progress;
+      position.y -= 24 * progress;
+    }
+    if (entity.id === "bat") {
+      position.x -= 18 * progress;
+      position.y -= 65 * progress;
+    }
+    return position;
+  }
+  private navigate(q: Point, entity: Entity | null, sound: boolean) {
+    this.pending = null;
+    this.waiting = false;
+    const wanted = entity ? p(q.x, q.y + 23) : q;
+    const endpoint = this.nav.nearest(wanted, entity ? 110 : 85);
+    // A temporary hazard is not a wall. Keep the intended landing point and wait
+    // at its edge if no safe detour exists, rather than silently changing the goal.
+    let path = endpoint
+      ? this.nav.route(this.player, endpoint, this.blocked, 0)
+      : [];
+    if (!path.length && endpoint)
+      path = this.nav.route(this.player, endpoint, () => false, 0);
+    if (!path.length) {
+      if (sound && this.elapsedSeconds - this.lastBlockedAt > 2) {
+        this.lastBlockedAt = this.elapsedSeconds;
+        this.hooks.onToast(
+          "这里没有可通行的落脚点。沿地面、桥面或台阶试一试。",
+        );
+        this.hooks.onAudio({ id: "nav.route.blocked" });
+      }
+      return;
+    }
+    this.path = path;
+    this.focus = entity;
+    this.destination = { ...path.at(-1)! };
+    this.destinationAge = 0.65;
+    if (sound) this.hooks.onAudio({ id: "nav.route.accept" });
+  }
+  private blocked = (q: Point) =>
+    this.level.hazards.some((h) => {
+      if (this.phase(h) !== "active" || !inHazard(q, h.rect, 9)) return false;
+      // Only someone already inside the lethal footprint may escape; the safety margin
+      // must not accidentally grant permission to walk into the hazard.
+      if (!inHazard(this.player, h.rect, 5)) return true;
+      const center = p(
+        h.rect.x + h.rect.width / 2,
+        h.rect.y + h.rect.height / 2,
+      );
+      return distance(q, center) < distance(this.player, center) - 0.1;
+    });
+  private phase(h: HazardSpec) {
+    if (h.disabledBy && this.solved.has(h.disabledBy)) return "safe";
+    const phase = this.elapsedSeconds % h.period;
+    return phase >= h.activeFrom
+      ? "active"
+      : phase >= h.warningFrom
+        ? "warning"
+        : "safe";
+  }
+  private arrive(entity: Entity) {
+    if (distance(this.entityPosition(entity), this.player) > 115) return;
+    this.pending = entity;
+    this.actionTime = 0.4;
+    this.speed = 0;
+    this.face(entity.x - this.player.x, entity.y - this.player.y);
+  }
+  private interact(entity: Entity) {
+    if (entity.type === "exit") {
+      if (this.solved.size < 4) {
+        this.hooks.onToast(
+          `还差 ${4 - this.solved.size} 段记忆。展开任务卡可以定位下一处。`,
+        );
         return;
       }
-      this.paused = true;
+      this.setPaused(true);
       this.hooks.onFinal(this.level);
       return;
     }
-    if (target.type === "puzzle") {
-      const puzzle = this.level.puzzles.find((candidate) => candidate.id === target.id);
-      if (!puzzle) return;
+    if (entity.type === "puzzle") {
+      const puzzle = this.level.puzzles.find((q) => q.id === entity.id)!;
       if (this.solved.has(puzzle.id)) {
-        this.hooks.onToast(`${puzzle.symbol}＝${puzzle.rewardDigit} · ${puzzle.rewardItem}`, "success");
+        this.hooks.onToast(
+          `${puzzle.symbol}＝${puzzle.rewardDigit} · ${puzzle.rewardItem}`,
+        );
         return;
       }
-      if (!this.isPuzzleAvailable(puzzle)) {
-        const required = puzzle.requires?.map((id) => this.level.puzzles.find((candidate) => candidate.id === id)?.title).filter(Boolean).join("、");
-        this.hooks.onToast(`这处线索还读不懂。先完成：${required}`, "danger");
-        this.hooks.onAudio({ id: "interaction.blocked" });
+      if (!this.available(puzzle)) {
+        const names = (puzzle.requires ?? [])
+          .filter((id) => !this.solved.has(id))
+          .map((id) => this.level.puzzles.find((q) => q.id === id)!.title);
+        this.hooks.onToast(`需要先调查：${names.join("、")}。`);
         return;
       }
-      this.paused = true;
+      this.setPaused(true);
       this.hooks.onPuzzle(puzzle);
       return;
     }
-    const side = this.level.sideTasks.find((candidate) => candidate.id === target.id);
-    if (!side) return;
-    if (this.sideTasks.has(side.id)) {
-      this.hooks.onToast(`${side.title}已经完成。`);
+    const task = this.level.sideTasks.find((q) => q.id === entity.id)!;
+    if (this.sideTasks.has(task.id)) {
+      this.hooks.onToast(task.completeText);
       return;
     }
-    this.completeSideTask(side);
-  }
-
-  private completeSideTask(side: SideTaskSpec) {
-    this.sideTasks.add(side.id);
-    this.persistLevel();
-    this.hooks.onAudio({ id: "task.complete", caption: `小事完成：${side.title}` });
-    this.hooks.onToast(side.completeText, "success");
+    this.sideTasks.add(task.id);
+    this.doneAt.set(task.id, this.elapsedSeconds);
+    this.persist();
     this.emitView();
+    this.hooks.onToast(task.completeText, "success");
+    this.hooks.onAudio({
+      id:
+        task.id === "help-cat"
+          ? "animal.cat"
+          : task.id === "call-home"
+            ? "interaction.phone"
+            : task.id === "photo"
+              ? "interaction.camera"
+              : "task.complete",
+      caption:
+        task.id === "help-cat" ? "小猫轻轻喵了一声，走到檐下" : "小事完成",
+    });
   }
-
-  private getCurrentPuzzle() {
-    return this.level.puzzles.find((puzzle) => !this.solved.has(puzzle.id) && this.isPuzzleAvailable(puzzle)) ?? null;
+  private face(dx: number, dy: number) {
+    if (Math.hypot(dx, dy) < 0.1) return;
+    const horizontal = this.facing === "left" || this.facing === "right";
+    if (Math.abs(dx) > Math.abs(dy) * (horizontal ? 0.76 : 1.22))
+      this.facing = dx > 0 ? "right" : "left";
+    else if (Math.abs(dy) > Math.abs(dx) * (horizontal ? 1.22 : 0.76))
+      this.facing = dy > 0 ? "down" : "up";
   }
-
-  private isPuzzleAvailable(puzzle: PuzzleSpec) {
-    return (puzzle.requires ?? []).every((id) => this.solved.has(id));
-  }
-
   private frame(time: number) {
     if (!this.running) return;
-    const delta = Math.min(0.05, (time - this.lastFrame) / 1000);
+    const delta = Math.min(0.04, (time - this.lastFrame) / 1000);
     this.lastFrame = time;
-    if (!this.paused && !this.dead) this.update(delta);
-    this.draw(time / 1000);
+    if (!this.paused && !this.dead && !document.hidden) this.update(delta);
+    this.draw();
     requestAnimationFrame((next) => this.frame(next));
   }
-
   private update(delta: number) {
     this.elapsedSeconds += delta;
-    this.footprints = this.footprints
-      .map((footprint) => ({ ...footprint, age: footprint.age + delta }))
-      .filter((footprint) => footprint.age < footprint.life);
-    if (this.path.length > 0) {
-      const next = this.path[0];
-      if (this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "active" && inside(next, hazard.rect, 8))) {
-        this.path = [];
-        this.focus = null;
-        this.hooks.onToast("前方危险正在发生，路线已暂停；等征兆消退或从侧面绕行。", "danger");
-        this.hooks.onAudio({ id: "nav.route.blocked", caption: "前方危险，路线暂停" });
-      }
-    }
-
-    const targetSpeed = this.path.length > 0 ? 175 : 0;
-    const response = this.path.length > 0 ? 9.5 : 13;
-    this.movementSpeed += (targetSpeed - this.movementSpeed) * (1 - Math.exp(-response * delta));
-    if (targetSpeed === 0 && this.movementSpeed < 1) this.movementSpeed = 0;
-
-    if (this.path.length > 0) {
-      const next = this.path[0];
-      const dx = next.x - this.player.x;
-      const dy = next.y - this.player.y;
-      const remaining = Math.hypot(dx, dy);
-      const directionX = remaining > 0 ? dx / remaining : 0;
-      const directionY = remaining > 0 ? dy / remaining : 0;
-      const step = Math.min(remaining, this.movementSpeed * delta);
-      this.movementDirection = point(directionX, directionY);
-      if (Math.abs(directionX) > 0.12) this.player.facing = directionX > 0 ? 1 : -1;
-      this.player.verticalFacing = Math.abs(directionY) > Math.abs(directionX) * 0.72 ? (directionY > 0 ? 1 : -1) : 0;
-      if (remaining <= step) {
-        this.player.x = next.x;
-        this.player.y = next.y;
-        this.path.shift();
-      } else {
-        this.player.x += directionX * step;
-        this.player.y += directionY * step;
-      }
-      this.strideDistance += step;
-      if (this.strideDistance >= this.nextFootstepDistance) {
-        this.leaveFootstep();
-        this.nextFootstepDistance += 30;
-      }
-      if (this.path.length === 0 && this.focus) {
-        const target = this.focus;
-        this.focus = null;
-        if (distance(this.player, this.targetPosition(target)) <= 66) this.interact(target);
-      }
-    }
-    const desiredX = clamp(this.player.x - VIEW_WIDTH / 2, 0, WORLD_WIDTH - VIEW_WIDTH);
-    const desiredY = clamp(this.player.y - VIEW_HEIGHT / 2, 0, WORLD_HEIGHT - VIEW_HEIGHT);
-    const follow = this.reducedMotion ? 1 : 0.09;
-    this.camera.x += (desiredX - this.camera.x) * follow;
-    this.camera.y += (desiredY - this.camera.y) * follow;
-    this.updateHazards();
-    const viewSecond = Math.floor(this.elapsedSeconds);
-    if (viewSecond !== this.lastViewSecond) {
-      this.lastViewSecond = viewSecond;
-      this.emitView();
-    }
-  }
-
-  private leaveFootstep() {
-    const stepNumber = Math.floor(this.nextFootstepDistance / 30);
-    const side: 1 | -1 = stepNumber % 2 === 0 ? 1 : -1;
-    const perpendicular = point(-this.movementDirection.y, this.movementDirection.x);
-    this.footprints.push({
-      x: this.player.x + perpendicular.x * side * 5 - this.movementDirection.x * 5,
-      y: this.player.y + 22 + perpendicular.y * side * 5 - this.movementDirection.y * 5,
-      age: 0,
-      life: this.level.environment === "snow-station" ? 1.7 : 0.72,
-      side,
-      directionX: this.movementDirection.x,
-      directionY: this.movementDirection.y,
+    this.destinationAge = Math.max(0, this.destinationAge - delta);
+    this.footsteps = this.footsteps.filter((f) => {
+      f.life -= delta;
+      return f.life > 0;
     });
-    if (this.footprints.length > 16) this.footprints.shift();
-    const stone = ["rain-city", "night-office", "snow-station", "glow-cave"].includes(this.level.environment);
-    this.hooks.onAudio({ id: stone ? "footstep.stone" : this.level.environment === "autumn-river" ? "footstep.wood" : "footstep.grass" });
-  }
-
-  private updateHazards() {
-    for (const hazard of this.level.hazards) {
-      if (this.isHazardDisabled(hazard)) continue;
-      const cycle = Math.floor(this.elapsedSeconds / hazard.period);
-      const phase = this.elapsedSeconds % hazard.period;
-      if (phase >= hazard.warningFrom && phase < hazard.activeFrom && this.warnedCycles.get(hazard.id) !== cycle) {
-        this.warnedCycles.set(hazard.id, cycle);
-        const pan = clamp(((hazard.rect.x + hazard.rect.width / 2 - this.camera.x) / VIEW_WIDTH) * 2 - 1, -1, 1);
-        this.hooks.onAudio({ id: "hazard.wind.warn", pan, caption: hazard.warning });
-        if (distance(this.player, point(hazard.rect.x + hazard.rect.width / 2, hazard.rect.y + hazard.rect.height / 2)) < 250) {
-          this.hooks.onToast(`危险征兆：${hazard.warning}`, "danger");
+    if (this.pending) {
+      this.actionTime -= delta;
+      if (this.actionTime <= 0) {
+        const target = this.pending;
+        this.pending = null;
+        this.interact(target);
+      }
+    }
+    if (this.paused) return;
+    let keyX =
+      Number(this.keys.has("d") || this.keys.has("arrowright")) -
+      Number(this.keys.has("a") || this.keys.has("arrowleft"));
+    let keyY =
+      Number(this.keys.has("s") || this.keys.has("arrowdown")) -
+      Number(this.keys.has("w") || this.keys.has("arrowup"));
+    if (keyX || keyY) {
+      const length = Math.hypot(keyX, keyY);
+      keyX /= length;
+      keyY /= length;
+      const next = p(this.player.x + keyX * 24, this.player.y + keyY * 24);
+      this.path = this.nav.visible(this.player, next, this.blocked)
+        ? [next]
+        : [];
+      this.focus = null;
+      this.destination = null;
+    }
+    if (this.waiting && this.destination) {
+      this.routeRetry -= delta;
+      if (this.routeRetry <= 0) {
+        this.routeRetry = 0.6;
+        const route = this.nav.route(
+          this.player,
+          this.destination,
+          this.blocked,
+          10,
+        );
+        if (route.length) {
+          this.path = route;
+          this.waiting = false;
         }
       }
-      if (phase >= hazard.activeFrom && inside(this.player, hazard.rect, -8)) {
-        this.kill(hazard);
-        return;
+    }
+    const remaining = this.path.reduce(
+      (sum, q, i) => sum + distance(i ? this.path[i - 1] : this.player, q),
+      0,
+    );
+    const targetSpeed = this.path.length
+      ? Math.min(180, Math.max(55, Math.sqrt(remaining * 1100)))
+      : 0;
+    this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-delta * 15));
+    let budget = this.speed * delta;
+    const before = { ...this.player };
+    while (budget > 0 && this.path.length) {
+      const next = this.path[0],
+        length = distance(this.player, next),
+        step = Math.min(budget, length);
+      if (length < 0.05) {
+        this.path.shift();
+        continue;
+      }
+      const candidate = p(
+        this.player.x + ((next.x - this.player.x) * step) / length,
+        this.player.y + ((next.y - this.player.y) * step) / length,
+      );
+      if (this.blocked(candidate)) {
+        this.waiting = Boolean(this.destination);
+        this.routeRetry = 0.6;
+        this.path = [];
+        this.speed = 0;
+        this.hooks.onToast(
+          "前方危险正在发生，已停在边缘；结束后继续走。右键可取消。",
+        );
+        break;
+      }
+      this.player = candidate;
+      budget -= step;
+      if (step >= length - 0.01) this.path.shift();
+    }
+    const travelled = distance(before, this.player);
+    if (travelled > 0.03) {
+      this.face(this.player.x - before.x, this.player.y - before.y);
+      this.stride += travelled;
+      if (this.stride - this.stepAt >= 27) {
+        this.stepAt = this.stride;
+        this.footsteps.push({
+          ...this.player,
+          life: 1.3,
+          angle: Math.atan2(this.player.y - before.y, this.player.x - before.x),
+        });
+        const region = this.nav.regionAt(this.player),
+          wood = /桥|码头/.test(region);
+        this.hooks.onAudio({
+          id: wood
+            ? "footstep.wood"
+            : /花|草|山/.test(region)
+              ? "footstep.grass"
+              : "footstep.stone",
+        });
       }
     }
-  }
-
-  private kill(hazard: HazardSpec) {
-    this.dead = true;
-    this.paused = true;
-    this.path = [];
-    this.movementSpeed = 0;
-    this.deathCount += 1;
-    this.persistLevel();
-    this.hooks.onAudio({ id: "player.death.soft", caption: hazard.title });
-    this.hooks.onDeath({ cause: hazard.title, lesson: hazard.lesson, time: this.formattedTime() });
-    this.emitView();
-  }
-
-  private formattedTime() {
-    const [hour, minute] = this.level.startTime.split(":").map(Number);
-    const total = hour * 60 + minute + Math.floor(this.elapsedSeconds / 8);
-    return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-  }
-
-  private draw(time: number) {
-    const ctx = this.ctx;
-    ctx.setTransform(2, 0, 0, 2, 0, 0);
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
-    ctx.save();
-    ctx.translate(-Math.round(this.camera.x), -Math.round(this.camera.y));
-    this.drawWorld(ctx, time);
-    ctx.restore();
-    this.drawGuidance(ctx, time);
-  }
-
-  private drawWorld(ctx: CanvasRenderingContext2D, time: number) {
-    const palette = this.level.palette;
-    ctx.fillStyle = palette.ground;
-    ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    const background = this.mapImages.get(this.level.background);
-    if (background?.complete && background.naturalWidth > 0) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(background, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-      ctx.imageSmoothingEnabled = false;
-      this.drawAtmosphere(ctx, time);
-    } else {
-      this.drawGroundPattern(ctx);
-      this.drawEnvironmentFeatures(ctx, time);
-      this.drawRoute(ctx);
-      this.level.blockers.forEach((blocker, index) => this.drawBlocker(ctx, blocker, index));
-      this.level.landmarks.forEach((landmark) => this.drawLandmark(ctx, landmark.position, landmark.icon, landmark.title, landmark.size ?? 68));
-    }
-    this.level.hazards.filter((hazard) => !this.isHazardDisabled(hazard)).forEach((hazard) => this.drawHazard(ctx, hazard, time));
-    this.drawResolvedAreas(ctx, time);
-    this.level.sideTasks.forEach((side) => this.drawSideTask(ctx, side, time));
-    this.level.puzzles.forEach((puzzle) => this.drawPuzzle(ctx, puzzle, time));
-    this.drawExit(ctx, time);
-    if (this.path.length > 0) this.drawBreadcrumbs(ctx, time);
-    this.drawFootprints(ctx);
-    this.drawPlayer(ctx, time);
-  }
-
-  private drawGroundPattern(ctx: CanvasRenderingContext2D) {
-    const palette = this.level.palette;
-    ctx.fillStyle = palette.groundAlt;
-    for (let y = 20; y < WORLD_HEIGHT; y += 48) {
-      for (let x = (y / 48) % 2 ? 16 : 32; x < WORLD_WIDTH; x += 64) {
-        const seed = (x * 13 + y * 7 + this.level.day * 31) % 17;
-        if (seed < 7) ctx.fillRect(x, y, seed % 2 === 0 ? 5 : 8, seed % 3 === 0 ? 3 : 5);
+    if (!this.path.length && !this.waiting) {
+      this.speed = 0;
+      if (this.focus) {
+        const target = this.focus;
+        this.focus = null;
+        this.destination = null;
+        this.arrive(target);
       }
     }
-  }
-
-  private drawAtmosphere(ctx: CanvasRenderingContext2D, time: number) {
-    const kind = this.level.environment;
-    ctx.save();
-    if (kind === "rain-city" || kind === "storm-mountain") {
-      ctx.globalAlpha = kind === "storm-mountain" ? .38 : .26;
-      ctx.strokeStyle = kind === "storm-mountain" ? "#d7e6ef" : "#d8f5ff";
-      ctx.lineWidth = kind === "storm-mountain" ? 2.2 : 1.6;
-      for (let x = -40; x < WORLD_WIDTH + 80; x += 48) {
-        const fall = this.reducedMotion ? (x * 5) % WORLD_HEIGHT : (time * (kind === "storm-mountain" ? 190 : 125) + x * 4) % (WORLD_HEIGHT + 80) - 40;
-        ctx.beginPath(); ctx.moveTo(x, fall); ctx.lineTo(x - 12, fall + 24); ctx.stroke();
-      }
-    } else if (kind === "snow-station") {
-      ctx.globalAlpha = .75; ctx.fillStyle = "#ffffff";
-      for (let i = 0; i < 100; i += 1) {
-        const x = (i * 137 + (this.reducedMotion ? 0 : time * (9 + i % 6))) % WORLD_WIDTH;
-        const y = (i * 71 + (this.reducedMotion ? 0 : time * (18 + i % 9))) % WORLD_HEIGHT;
-        const size = 2 + i % 3; ctx.fillRect(x, y, size, size);
-      }
-    } else {
-      const colors = kind === "glow-cave" ? ["#65f5d0", "#ad86ff", "#fff09c"] : kind === "autumn-river" ? ["#f2a14d", "#dc6f45", "#ffe09a"] : ["#fff5a5", "#f5b5dc", "#b2f5e8"];
-      ctx.globalAlpha = kind === "night-office" ? .18 : .52;
-      for (let i = 0; i < (kind === "night-office" ? 12 : 34); i += 1) {
-        const x = (i * 197 + (this.reducedMotion ? 0 : time * (3 + i % 4))) % WORLD_WIDTH;
-        const y = (i * 113 + Math.sin(time + i) * (this.reducedMotion ? 0 : 8)) % WORLD_HEIGHT;
-        ctx.fillStyle = colors[i % colors.length]; ctx.fillRect(x, y, 3 + i % 3, 3 + i % 2);
-      }
+    const smooth = 1 - Math.exp(-delta * 9);
+    this.camera.x +=
+      (clamp(
+        this.player.x - this.width / 2,
+        0,
+        Math.max(0, WORLD.width - this.width),
+      ) -
+        this.camera.x) *
+      smooth;
+    this.camera.y +=
+      (clamp(
+        this.player.y - this.height / 2,
+        0,
+        Math.max(0, WORLD.height - this.height),
+      ) -
+        this.camera.y) *
+      smooth;
+    if (this.pointer) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.hovered = this.hit(
+        p(
+          ((this.pointer.x - rect.left) / rect.width) * this.width +
+            this.camera.x,
+          ((this.pointer.y - rect.top) / rect.height) * this.height +
+            this.camera.y,
+        ),
+      );
     }
-    ctx.restore();
+    this.reveal();
+    this.updateHazards();
+    const second = Math.floor(this.elapsedSeconds);
+    if (second !== this.lastView) {
+      this.lastView = second;
+      this.emitView();
+      if (second % 5 === 0) this.persist();
+    }
   }
-
-  private drawResolvedAreas(ctx: CanvasRenderingContext2D, time: number) {
+  private updateHazards() {
     for (const hazard of this.level.hazards) {
-      if (!this.isHazardDisabled(hazard)) continue;
-      const center = point(hazard.rect.x + hazard.rect.width / 2, hazard.rect.y + hazard.rect.height / 2);
-      ctx.save(); ctx.globalAlpha = .55; ctx.fillStyle = "#b9ffe2";
-      for (let i = 0; i < 7; i += 1) {
-        const angle = i * .9 + (this.reducedMotion ? 0 : time * .18);
-        const radius = 22 + i * 5;
-        ctx.fillRect(center.x + Math.cos(angle) * radius - 2, center.y + Math.sin(angle) * radius * .45 - 2, 4, 4);
+      const phase = this.phase(hazard),
+        center = p(
+          hazard.rect.x + hazard.rect.width / 2,
+          hazard.rect.y + hazard.rect.height / 2,
+        ),
+        cycle = Math.floor(this.elapsedSeconds / hazard.period);
+      if (
+        phase !== "safe" &&
+        distance(center, this.player) < 250 &&
+        this.warned.get(hazard.id) !== cycle
+      ) {
+        this.warned.set(hazard.id, cycle);
+        this.hooks.onAudio({
+          id: /落|崩|枝/.test(hazard.title)
+            ? "hazard.branch.creak"
+            : "hazard.wind.warn",
+          caption: hazard.warning,
+          pan: clamp((center.x - this.player.x) / 300, -1, 1),
+        });
       }
-      ctx.restore();
-    }
-  }
-
-  private drawMarkerLabel(ctx: CanvasRenderingContext2D, position: Point, label: string, border: string) {
-    ctx.save(); ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    const width = Math.max(84, Math.min(180, ctx.measureText(label).width + 24));
-    const x = position.x - width / 2; const y = position.y + 31;
-    ctx.fillStyle = "#142432e8"; ctx.fillRect(x, y, width, 26);
-    ctx.strokeStyle = border; ctx.lineWidth = 2; ctx.strokeRect(x, y, width, 26);
-    ctx.fillStyle = "#fff9dc"; ctx.fillText(label, position.x, y + 13);
-    ctx.restore();
-  }
-
-  private isHazardDisabled(hazard: HazardSpec) {
-    return Boolean(hazard.disabledBy && this.solved.has(hazard.disabledBy));
-  }
-
-  private hazardPhase(hazard: HazardSpec): "safe" | "warning" | "active" {
-    const phase = this.elapsedSeconds % hazard.period;
-    if (phase >= hazard.activeFrom) return "active";
-    if (phase >= hazard.warningFrom) return "warning";
-    return "safe";
-  }
-
-  private drawRoute(ctx: CanvasRenderingContext2D) {
-    const route = this.level.route;
-    ctx.lineCap = "square";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = this.level.palette.pathEdge;
-    ctx.lineWidth = 62;
-    ctx.beginPath();
-    ctx.moveTo(route[0].x, route[0].y);
-    route.slice(1).forEach((part) => ctx.lineTo(part.x, part.y));
-    ctx.stroke();
-    ctx.strokeStyle = this.level.palette.path;
-    ctx.lineWidth = 50;
-    ctx.stroke();
-    ctx.strokeStyle = `${this.level.palette.accentSoft}55`;
-    ctx.lineWidth = 3;
-    ctx.setLineDash([12, 20]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  private drawEnvironmentFeatures(ctx: CanvasRenderingContext2D, time: number) {
-    const kind = this.level.environment;
-    const p = this.level.palette;
-    if (kind === "rain-city") {
-      ctx.fillStyle = p.water;
-      ctx.fillRect(0, 500, 390, 80);
-      ctx.fillRect(655, 150, 260, 70);
-      ctx.strokeStyle = "#b9dce5";
-      ctx.lineWidth = 2;
-      for (let x = 0; x < WORLD_WIDTH; x += 42) {
-        const fall = this.reducedMotion ? 0 : (time * 80 + x * 3) % 900;
-        ctx.beginPath(); ctx.moveTo(x, fall); ctx.lineTo(x - 9, fall + 18); ctx.stroke();
-      }
-    } else if (kind === "night-office") {
-      ctx.fillStyle = "#20263a";
-      for (let x = 90; x < WORLD_WIDTH - 90; x += 160) for (let y = 80; y < WORLD_HEIGHT - 80; y += 120) ctx.fillRect(x, y, 110, 64);
-      ctx.fillStyle = "#61718d";
-      for (let x = 105; x < WORLD_WIDTH - 100; x += 160) ctx.fillRect(x, 95, 72, 8);
-    } else if (kind === "flower-valley") {
-      ctx.fillStyle = p.water;
-      ctx.beginPath(); ctx.moveTo(0, 360); ctx.bezierCurveTo(380, 280, 540, 570, 820, 465); ctx.bezierCurveTo(1100, 360, 1280, 500, 1600, 390); ctx.lineTo(1600, 475); ctx.bezierCurveTo(1260, 565, 1080, 440, 820, 555); ctx.bezierCurveTo(520, 670, 330, 380, 0, 450); ctx.closePath(); ctx.fill();
-      this.drawFlowers(ctx, 90);
-    } else if (kind === "rainbow-falls") {
-      ctx.fillStyle = p.water;
-      ctx.fillRect(1000, 0, 230, 310);
-      ctx.beginPath(); ctx.moveTo(1040, 260); ctx.bezierCurveTo(930, 420, 820, 520, 690, 900); ctx.lineTo(830, 900); ctx.bezierCurveTo(900, 590, 1100, 430, 1190, 270); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "#d2fbff"; ctx.lineWidth = 7;
-      for (let x = 1040; x < 1210; x += 28) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x - 24, 300); ctx.stroke(); }
-      this.drawFlowers(ctx, 48);
-    } else if (kind === "autumn-river") {
-      ctx.fillStyle = p.water;
-      ctx.beginPath(); ctx.moveTo(0, 560); ctx.bezierCurveTo(360, 480, 600, 610, 840, 555); ctx.bezierCurveTo(1120, 495, 1350, 560, 1600, 500); ctx.lineTo(1600, 680); ctx.bezierCurveTo(1300, 735, 1100, 650, 830, 720); ctx.bezierCurveTo(540, 790, 330, 640, 0, 730); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = "#d5783f";
-      for (let i = 0; i < 80; i += 1) { const x = (i * 149) % 1570; const y = (i * 83) % 860; ctx.fillRect(x, y, 8, 5); }
-    } else if (kind === "storm-mountain") {
-      ctx.fillStyle = p.groundAlt;
-      for (let x = 0; x < WORLD_WIDTH; x += 220) { ctx.beginPath(); ctx.moveTo(x, 420); ctx.lineTo(x + 120, 130); ctx.lineTo(x + 260, 420); ctx.fill(); }
-      ctx.fillStyle = p.water;
-      ctx.beginPath(); ctx.moveTo(0, 720); ctx.lineTo(720, 540); ctx.lineTo(780, 620); ctx.lineTo(0, 850); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "#b8cad6"; ctx.lineWidth = 2;
-      for (let x = 0; x < WORLD_WIDTH; x += 55) { const fall = this.reducedMotion ? 0 : (time * 110 + x) % 900; ctx.beginPath(); ctx.moveTo(x, fall); ctx.lineTo(x - 13, fall + 24); ctx.stroke(); }
-    } else if (kind === "snow-station") {
-      ctx.fillStyle = "#6f8197";
-      ctx.fillRect(0, 520, WORLD_WIDTH, 15);
-      ctx.fillRect(0, 610, WORLD_WIDTH, 9);
-      ctx.strokeStyle = "#42546b"; ctx.lineWidth = 5;
-      for (let x = 0; x < WORLD_WIDTH; x += 44) { ctx.beginPath(); ctx.moveTo(x, 505); ctx.lineTo(x + 12, 630); ctx.stroke(); }
-      ctx.fillStyle = "#ffffff";
-      for (let i = 0; i < 150; i += 1) { const x = (i * 97 + (this.reducedMotion ? 0 : time * 15)) % WORLD_WIDTH; const y = (i * 53 + (this.reducedMotion ? 0 : time * 28)) % WORLD_HEIGHT; ctx.fillRect(x, y, i % 3 + 2, i % 3 + 2); }
-    } else {
-      ctx.fillStyle = p.water;
-      ctx.beginPath(); ctx.moveTo(0, 570); ctx.bezierCurveTo(330, 480, 620, 700, 900, 570); ctx.bezierCurveTo(1170, 440, 1330, 580, 1600, 470); ctx.lineTo(1600, 650); ctx.bezierCurveTo(1300, 750, 1100, 610, 880, 730); ctx.bezierCurveTo(600, 850, 330, 620, 0, 760); ctx.closePath(); ctx.fill();
-      for (let i = 0; i < 55; i += 1) {
-        const x = (i * 173) % 1550 + 20; const y = (i * 107) % 850 + 20;
-        ctx.fillStyle = i % 2 ? "#6cebd1" : "#a483ff";
-        ctx.fillRect(x, y, 5, 12); ctx.fillRect(x - 3, y + 4, 11, 4);
+      if (
+        phase === "active" &&
+        this.elapsedSeconds > this.graceUntil &&
+        inHazard(this.player, hazard.rect, 5)
+      ) {
+        this.dead = true;
+        this.paused = true;
+        this.cancel();
+        this.deathCount++;
+        this.persist();
+        this.hooks.onAudio({ id: "player.death.soft" });
+        this.hooks.onDeath({
+          cause: hazard.title,
+          lesson: hazard.lesson,
+          time: this.level.startTime,
+        });
+        break;
       }
     }
   }
-
-  private drawFlowers(ctx: CanvasRenderingContext2D, count: number) {
-    const colors = ["#fff4a8", "#ff9fc8", "#fefefe", "#7d91ff"];
-    for (let i = 0; i < count; i += 1) {
-      const x = (i * 137 + this.level.day * 23) % 1540 + 30;
-      const y = (i * 79 + this.level.day * 41) % 840 + 30;
-      ctx.fillStyle = colors[i % colors.length];
-      ctx.fillRect(x - 3, y, 3, 3); ctx.fillRect(x + 3, y, 3, 3); ctx.fillRect(x, y - 3, 3, 3); ctx.fillRect(x, y + 3, 3, 3);
-      ctx.fillStyle = "#ffd75b"; ctx.fillRect(x, y, 3, 3);
-    }
+  private seen(q: Point) {
+    return this.explored.has(
+      Math.floor(q.y / FOG) * FOG_COLS + Math.floor(q.x / FOG),
+    );
   }
-
-  private drawBlocker(ctx: CanvasRenderingContext2D, blocker: Rect, index: number) {
-    ctx.fillStyle = this.level.palette.shadow;
-    ctx.fillRect(blocker.x, blocker.y + 8, blocker.width, blocker.height);
-    ctx.fillStyle = index % 2 ? this.level.palette.groundAlt : this.level.palette.pathEdge;
-    ctx.fillRect(blocker.x, blocker.y, blocker.width, blocker.height);
-    ctx.fillStyle = `${this.level.palette.accentSoft}35`;
-    ctx.fillRect(blocker.x + 8, blocker.y + 8, blocker.width - 16, 8);
-  }
-
-  private drawLandmark(ctx: CanvasRenderingContext2D, position: Point, icon: string, title: string, size: number) {
-    ctx.fillStyle = this.level.palette.shadow;
-    ctx.fillRect(position.x - size / 2 + 6, position.y - size / 2 + 9, size, size);
-    ctx.fillStyle = this.level.palette.pathEdge;
-    ctx.fillRect(position.x - size / 2, position.y - size / 2, size, size);
-    ctx.fillStyle = this.level.palette.accentSoft;
-    ctx.fillRect(position.x - size / 2 + 7, position.y - size / 2 + 7, size - 14, size - 14);
-    ctx.fillStyle = this.level.palette.shadow;
-    ctx.font = "bold 20px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(icon, position.x, position.y - 3);
-    ctx.font = "bold 11px sans-serif";
-    ctx.fillText(title, position.x, position.y + size / 2 + 15);
-  }
-
-  private drawPuzzle(ctx: CanvasRenderingContext2D, puzzle: PuzzleSpec, time: number) {
-    const solved = this.solved.has(puzzle.id);
-    const available = this.isPuzzleAvailable(puzzle);
-    const current = this.getCurrentPuzzle()?.id === puzzle.id;
-    const hover = this.hovered?.type === "puzzle" && this.hovered.id === puzzle.id;
-    const pulse = this.reducedMotion ? 0 : Math.sin(time * 4 + puzzle.position.x) * 3;
-    const radius = solved ? 14 : 18;
-    ctx.save();
-    ctx.translate(puzzle.position.x, puzzle.position.y);
-    if ((available && !solved) || hover) {
-      ctx.shadowBlur = current ? 22 : 13;
-      ctx.shadowColor = current ? this.level.palette.accent : "#c6fff2";
-      ctx.strokeStyle = current ? "#fff0a3" : "#d5fff5";
-      ctx.lineWidth = current ? 4 : 2;
-      ctx.beginPath(); ctx.arc(0, 0, radius + 9 + pulse, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = solved ? "#4e9e7a" : available ? this.level.palette.accent : "#5b6670";
-    ctx.strokeStyle = solved ? "#c9ffe6" : available ? "#fff3b1" : "#9da5aa";
-    ctx.lineWidth = 3;
-    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
-    ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
-    ctx.rotate(-Math.PI / 4);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = solved ? "#e1fff0" : available ? this.level.palette.shadow : "#d2d7da";
-    ctx.font = `bold ${solved ? 15 : 17}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(solved ? "✓" : puzzle.icon, 0, 0);
-    ctx.restore();
-    if (current || hover) this.drawMarkerLabel(ctx, puzzle.position, solved ? `${puzzle.symbol}＝${puzzle.rewardDigit}` : puzzle.title, current ? "#d3a62e" : "#5f877e");
-  }
-
-  private drawSideTask(ctx: CanvasRenderingContext2D, side: SideTaskSpec, time: number) {
-    const done = this.sideTasks.has(side.id);
-    const hover = this.hovered?.type === "side" && this.hovered.id === side.id;
-    const pulse = this.reducedMotion ? 0 : Math.sin(time * 3 + side.position.y) * 2;
-    ctx.save();
-    ctx.shadowBlur = done ? 0 : 12 + pulse;
-    ctx.shadowColor = "#75efd3";
-    ctx.fillStyle = done ? "#527b70cc" : "#1f6d65ee";
-    ctx.strokeStyle = done ? "#86aa9f" : "#9dffe9";
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(side.position.x, side.position.y, done ? 13 : 17 + pulse * .3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#effffb"; ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(done ? "✓" : side.icon, side.position.x, side.position.y);
-    ctx.restore();
-    if (hover) this.drawMarkerLabel(ctx, side.position, side.title, "#318d7c");
-  }
-
-  private drawExit(ctx: CanvasRenderingContext2D, time: number) {
-    const ready = this.solved.size === this.level.puzzles.length;
-    const pulse = this.reducedMotion ? 0 : Math.sin(time * 3) * 4;
-    ctx.save(); ctx.translate(this.level.exit.x, this.level.exit.y);
-    ctx.shadowBlur = ready ? 24 : 5; ctx.shadowColor = ready ? "#ffe77d" : "#9aa7ad";
-    ctx.strokeStyle = ready ? "#fff1a6" : "#9ca6aa"; ctx.lineWidth = ready ? 5 : 3;
-    ctx.beginPath(); ctx.arc(0, 0, 24 + pulse, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = ready ? "#6f5420dd" : "#303b43cc"; ctx.beginPath(); ctx.arc(0, 0, 19, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0; ctx.fillStyle = ready ? "#fff3b5" : "#c2c9cb";
-    ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(ready ? "终" : `${this.solved.size}/4`, 0, 0); ctx.restore();
-    if (this.hovered?.type === "exit" || ready) this.drawMarkerLabel(ctx, this.level.exit, ready ? "重组今日口令" : "终点尚未开启", ready ? "#b58b24" : "#67747b");
-  }
-
-  private drawHazard(ctx: CanvasRenderingContext2D, hazard: HazardSpec, time: number) {
-    const phase = this.elapsedSeconds % hazard.period;
-    const warning = phase >= hazard.warningFrom && phase < hazard.activeFrom;
-    const active = phase >= hazard.activeFrom;
-    if (!warning && !active && !this.dangerAssist) return;
-    const alpha = active ? 0.34 : warning ? 0.16 + Math.sin(time * 10) * 0.08 : 0.08;
-    const cx = hazard.rect.x + hazard.rect.width / 2; const cy = hazard.rect.y + hazard.rect.height / 2;
-    ctx.save();
-    ctx.fillStyle = this.hexAlpha(hazard.color, alpha);
-    ctx.strokeStyle = hazard.color;
-    ctx.lineWidth = active ? 5 : 3;
-    ctx.setLineDash(active ? [] : [10, 7]);
-    ctx.beginPath(); ctx.ellipse(cx, cy, hazard.rect.width / 2, hazard.rect.height / 2, -.12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.setLineDash([]);
-    if (warning || active) {
-      ctx.fillStyle = "#1d2430"; ctx.fillRect(hazard.rect.x, hazard.rect.y - 25, Math.min(220, hazard.title.length * 15 + 44), 22);
-      ctx.fillStyle = hazard.color; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      ctx.fillText(`${active ? "!" : "△"} ${hazard.title}`, hazard.rect.x + 7, hazard.rect.y - 14);
-    }
-    ctx.restore();
-  }
-
-  private drawBreadcrumbs(ctx: CanvasRenderingContext2D, time: number) {
-    const points = [this.player, ...this.path];
-    const risky = points.some((candidate) => this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) !== "safe" && inside(candidate, hazard.rect, 12)));
-    ctx.fillStyle = risky ? "#ff9d63" : this.level.palette.accent;
-    for (let i = 0; i < points.length - 1; i += 1) {
-      const start = points[i]; const end = points[i + 1]; const length = distance(start, end);
-      for (let along = 20; along < length; along += 34) {
-        const t = along / length;
-        const x = start.x + (end.x - start.x) * t;
-        const y = start.y + (end.y - start.y) * t;
-        const bob = this.reducedMotion ? 0 : Math.sin(time * 5 + along) * 2;
-        ctx.fillRect(Math.round(x) - 2, Math.round(y + bob) - 2, 5, 5);
-      }
-    }
-  }
-
-  private drawFootprints(ctx: CanvasRenderingContext2D) {
-    for (const footprint of this.footprints) {
-      const progress = footprint.age / footprint.life;
-      const alpha = Math.max(0, 1 - progress);
-      ctx.save();
-      ctx.translate(Math.round(footprint.x), Math.round(footprint.y));
-      ctx.rotate(Math.atan2(footprint.directionY, footprint.directionX) + Math.PI / 2);
-      ctx.globalAlpha = alpha * (this.level.environment === "snow-station" ? 0.62 : 0.34);
-      if (this.level.environment === "rain-city" || this.level.environment === "storm-mountain") {
-        ctx.strokeStyle = "#d9f4ff";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 4 + progress * 8, 2 + progress * 4, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = this.level.environment === "snow-station" ? "#eaf7ff" : this.level.palette.shadow;
-        ctx.beginPath();
-        ctx.ellipse(footprint.side * 3, 0, 3, 7, footprint.side * 0.12, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha *= 0.72;
-        ctx.beginPath();
-        ctx.ellipse(footprint.side * 3, -5, 4, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-  }
-
-  private drawPlayer(ctx: CanvasRenderingContext2D, time: number) {
-    const moving = this.movementSpeed > 7;
-    const speedRatio = clamp(this.movementSpeed / 175, 0, 1);
-    const goingUp = this.player.verticalFacing < 0;
-    const alternateStep = !this.reducedMotion && Math.floor((this.strideDistance + 14) / 30) % 2 === 1;
-    const interacting = time < this.interactionUntil;
-    let frame: HeroFrame = goingUp ? "back-idle" : "idle";
-    if (interacting) frame = "interact";
-    else if (moving && goingUp) frame = alternateStep ? "back-pass" : "back-contact";
-    else if (moving) frame = alternateStep ? "walk-pass" : "walk-contact";
-
-    const gaitLift = moving && !this.reducedMotion ? Math.abs(Math.sin((this.strideDistance / 30) * Math.PI)) * 2.4 : 0;
-    const breathing = !moving && !interacting && !this.reducedMotion ? Math.sin(time * 2.15) * 0.65 : 0;
-    const x = Math.round(this.player.x);
-    const y = Math.round(this.player.y - gaitLift + breathing);
-    const shadowWidth = 19 + speedRatio * 2 - gaitLift * 0.8;
-    ctx.fillStyle = "#17263388";
-    ctx.beginPath();
-    ctx.ellipse(x, Math.round(this.player.y + 23), shadowWidth, 7 - speedRatio * 0.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    const heroSprite = this.heroSprites.get(frame) ?? this.heroSprites.get(goingUp ? "back-idle" : "idle") ?? this.heroSprites.get("idle");
-    if (heroSprite) {
-      const targetHeight = interacting ? 94 : 92;
-      const targetWidth = clamp(targetHeight * (heroSprite.width / heroSprite.height), 54, interacting ? 78 : 70);
-      const lean = this.reducedMotion ? 0 : this.movementDirection.x * speedRatio * 0.035;
-      const squash = moving && !this.reducedMotion ? Math.sin((this.strideDistance / 30) * Math.PI) * 0.018 : 0;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(lean);
-      ctx.scale(this.player.facing * (1 + squash), 1 - squash);
-      ctx.drawImage(heroSprite, -targetWidth / 2, -targetHeight + 26, targetWidth, targetHeight);
-      ctx.restore();
-      return;
-    }
-    ctx.fillStyle = "#26394b"; ctx.fillRect(x - 12, y + 11, 24, 8);
-    ctx.fillStyle = "#f0b18a"; ctx.fillRect(x - 9, y - 19, 18, 16);
-    ctx.fillStyle = "#4b352f"; ctx.fillRect(x - 10, y - 22, 20, 7);
-    ctx.fillStyle = "#ffca5f"; ctx.fillRect(x - 12, y - 4, 24, 20);
-    ctx.fillStyle = "#4274a8"; ctx.fillRect(x - 10, y + 16, 8, 10); ctx.fillRect(x + 3, y + 16, 8, 10);
-    ctx.fillStyle = "#2c3142";
-    const eyeX = this.player.facing === 1 ? x + 4 : x - 7;
-    ctx.fillRect(eyeX, y - 13, 3, 3);
-    ctx.fillStyle = "#ffffffaa"; ctx.fillRect(x - 8, y - 17, 4, 3);
-  }
-
-  private drawGuidance(ctx: CanvasRenderingContext2D, time: number) {
-    const target = this.getCurrentPuzzle()?.position ?? (this.solved.size === this.level.puzzles.length ? this.level.exit : null);
-    if (!target || this.paused) return;
-    const screen = point(target.x - this.camera.x, target.y - this.camera.y);
-    if (screen.x >= 44 && screen.x <= VIEW_WIDTH - 44 && screen.y >= 84 && screen.y <= VIEW_HEIGHT - 50) return;
-    const center = point(VIEW_WIDTH / 2, VIEW_HEIGHT / 2);
-    const dx = screen.x - center.x; const dy = screen.y - center.y;
-    const scale = Math.min(390 / Math.max(1, Math.abs(dx)), 200 / Math.max(1, Math.abs(dy)));
-    const x = center.x + dx * scale; const y = center.y + dy * scale;
-    const angle = Math.atan2(dy, dx);
-    const pulse = this.reducedMotion ? 0 : Math.sin(time * 5) * 3;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
-    ctx.fillStyle = this.level.palette.shadow; ctx.fillRect(-14, -15, 38 + pulse, 30);
-    ctx.fillStyle = this.level.palette.accent;
-    ctx.beginPath(); ctx.moveTo(25 + pulse, 0); ctx.lineTo(5, -11); ctx.lineTo(5, 11); ctx.closePath(); ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = "#172536cc"; ctx.fillRect(x - 39, y + 18, 78, 22);
-    ctx.fillStyle = "#fff7d0"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("当前目标", x, y + 29);
-  }
-
-  private resize() {
-    this.canvas.width = VIEW_WIDTH * 2;
-    this.canvas.height = VIEW_HEIGHT * 2;
-  }
-
-  private findPath(start: Point, end: Point): Point[] {
-    const cols = Math.ceil(WORLD_WIDTH / GRID);
-    const rows = Math.ceil(WORLD_HEIGHT / GRID);
-    const toCell = (p: Point) => ({ x: clamp(Math.floor(p.x / GRID), 0, cols - 1), y: clamp(Math.floor(p.y / GRID), 0, rows - 1) });
-    const startCell = toCell(start); const endCell = toCell(end);
-    const key = (x: number, y: number) => `${x},${y}`;
-    const open: Array<{ x: number; y: number; g: number; f: number }> = [{ ...startCell, g: 0, f: 0 }];
-    const came = new Map<string, string>();
-    const scores = new Map<string, number>([[key(startCell.x, startCell.y), 0]]);
-    const blocked = (x: number, y: number) => {
-      const center = point(x * GRID + GRID / 2, y * GRID + GRID / 2);
-      const activeDanger = this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "active" && inside(center, hazard.rect, this.player.radius + 3));
-      if (activeDanger) return true;
-      if (x === endCell.x && y === endCell.y) return false;
-      const outsideNavigation = this.level.route.slice(1).every((routePoint, index) => distanceToSegment(center, this.level.route[index], routePoint) > 118);
-      return outsideNavigation || this.level.blockers.some((area) => inside(center, area, this.player.radius + 3));
-    };
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    let found = false;
-    while (open.length > 0) {
-      open.sort((a, b) => a.f - b.f);
-      const current = open.shift();
-      if (!current) break;
-      if (current.x === endCell.x && current.y === endCell.y) { found = true; break; }
-      for (const [dx, dy] of dirs) {
-        const nx = current.x + dx; const ny = current.y + dy;
-        if (nx < 1 || ny < 1 || nx >= cols - 1 || ny >= rows - 1 || blocked(nx, ny)) continue;
-        const nextKey = key(nx, ny);
-        const center = point(nx * GRID + GRID / 2, ny * GRID + GRID / 2);
-        const warningCost = this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "warning" && inside(center, hazard.rect, 18)) ? 8 : 0;
-        const tentative = current.g + 1 + warningCost;
-        if (tentative >= (scores.get(nextKey) ?? Infinity)) continue;
-        scores.set(nextKey, tentative);
-        came.set(nextKey, key(current.x, current.y));
-        open.push({ x: nx, y: ny, g: tentative, f: tentative + Math.abs(nx - endCell.x) + Math.abs(ny - endCell.y) });
-      }
-    }
-    if (!found) return [];
-    const cells: Point[] = [];
-    let cursor = key(endCell.x, endCell.y);
-    while (cursor !== key(startCell.x, startCell.y)) {
-      const [x, y] = cursor.split(",").map(Number);
-      cells.push(point(x * GRID + GRID / 2, y * GRID + GRID / 2));
-      const previous = came.get(cursor);
-      if (!previous) return [];
-      cursor = previous;
-    }
-    cells.reverse();
-    const simplified: Point[] = [];
-    cells.forEach((cell, index) => {
-      const previous = cells[index - 1]; const next = cells[index + 1];
-      if (!previous || !next || (cell.x - previous.x !== next.x - cell.x || cell.y - previous.y !== next.y - cell.y)) simplified.push(cell);
+  private reveal() {
+    const cx = Math.floor(this.player.x / FOG),
+      cy = Math.floor(this.player.y / FOG);
+    for (let y = Math.max(0, cy - 7); y < Math.min(FOG_ROWS, cy + 8); y++)
+      for (let x = Math.max(0, cx - 7); x < Math.min(FOG_COLS, cx + 8); x++)
+        if (distance(this.player, p((x + 0.5) * FOG, (y + 0.5) * FOG)) < VISION)
+          this.explored.add(y * FOG_COLS + x);
+    this.entities.forEach((e) => {
+      if (this.seen(e)) this.discovered.add(e.id);
     });
-    simplified.push(end);
-    return simplified;
   }
-
-  private persistLevel() {
-    const levelState: PersistedLevelState = {
-      solved: [...this.solved], sideTasks: [...this.sideTasks], hintsUsed: this.hintCount, deaths: this.deathCount,
+  private draw() {
+    const ctx = this.ctx;
+    ctx.setTransform(
+      this.canvas.width / this.width,
+      0,
+      0,
+      this.canvas.height / this.height,
+      0,
+      0,
+    );
+    ctx.fillStyle = this.level.palette.shadow;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.save();
+    ctx.translate(-this.camera.x, -this.camera.y);
+    const map = this.images.get(this.level.id);
+    if (map?.complete && map.naturalWidth) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(map, 0, 0, 1600, 900);
+    }
+    this.drawCrossing();
+    this.drawAtmosphere();
+    this.level.hazards.forEach((h) => this.drawHazard(h));
+    this.footsteps.forEach((f) => {
+      ctx.save();
+      ctx.translate(f.x, f.y);
+      ctx.rotate(f.angle);
+      ctx.globalAlpha = (f.life / 1.3) * 0.14;
+      ctx.fillStyle = "#2b3028";
+      ctx.fillRect(-3, -2, 6, 3);
+      ctx.restore();
+    });
+    const actors = [
+      ...this.entities.map((entity) => ({
+        y: this.entityPosition(entity).y,
+        entity,
+      })),
+      { y: this.player.y, entity: null },
+    ].sort((a, b) => a.y - b.y);
+    actors.forEach((actor) =>
+      actor.entity ? this.drawEntity(actor.entity) : this.drawPlayer(),
+    );
+    if (this.destination && this.destinationAge > 0 && !this.focus) {
+      ctx.globalAlpha = (this.destinationAge / 0.65) * 0.7;
+      ctx.strokeStyle = "#fff9de";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(this.destination.x - 4, this.destination.y - 2);
+      ctx.lineTo(this.destination.x, this.destination.y + 1);
+      ctx.lineTo(this.destination.x + 4, this.destination.y - 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    this.drawMinimap();
+    if (new URLSearchParams(location.search).has("debug"))
+      this.canvas.dataset.state = JSON.stringify({
+        level: this.level.id,
+        player: this.player,
+        facing: this.facing,
+        path: this.path,
+        waiting: this.waiting,
+        camera: this.camera,
+        viewport: { width: this.width, height: this.height },
+        hover: this.hovered?.id,
+        explored: this.explored.size,
+        paused: this.paused,
+      });
+  }
+  private drawPlayer() {
+    const ctx = this.ctx,
+      moving = this.path.length > 0 && this.speed > 10,
+      phase = (this.stride / 54) * Math.PI * 2;
+    const sideAction = this.pending && (this.facing === "left" || this.facing === "right");
+    const row = sideAction
+      ? 3
+      : this.facing === "up"
+        ? 2
+        : this.facing === "left" || this.facing === "right"
+          ? 1
+          : 0;
+    const col = sideAction
+      ? 2
+      : moving
+        ? [1, 2, 3, 2][Math.floor(this.stride / 13.5) % 4]
+        : 0;
+    const lift =
+      moving && !this.reducedMotion ? Math.abs(Math.sin(phase)) * 1.2 : 0;
+    ctx.fillStyle = "#162a3048";
+    ctx.beginPath();
+    ctx.ellipse(this.player.x, this.player.y, 18, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    this.atlas.draw(
+      ctx,
+      "traveler-v2",
+      row * 4 + col,
+      this.player.x,
+      this.player.y - lift,
+      78,
+      false,
+      this.facing === "left",
+      63,
+    );
+    if (this.pending) {
+      ctx.strokeStyle = "#f5e8b8";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.player.x - 12, this.player.y - 88);
+      ctx.lineTo(
+        this.player.x - 12 + 24 * (1 - this.actionTime / 0.4),
+        this.player.y - 88,
+      );
+      ctx.stroke();
+    }
+  }
+  private drawCrossing() {
+    if (this.levelIndex !== 3 || !this.solved.has("lily-path")) return;
+    const points = [p(775, 570), p(850, 600), p(910, 665), p(1000, 718)];
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i],
+        b = points[i + 1],
+        count = Math.ceil(distance(a, b) / 27);
+      for (let j = 0; j < count; j++)
+        this.atlas.draw(
+          this.ctx,
+          "world-props",
+          9,
+          a.x + ((b.x - a.x) * j) / count,
+          a.y + ((b.y - a.y) * j) / count,
+          17,
+          false,
+          false,
+          37,
+        );
+    }
+  }
+  private drawEntity(entity: Entity) {
+    const ctx = this.ctx,
+      pos = this.entityPosition(entity),
+      done = this.done(entity);
+    let y = pos.y;
+    if ((entity.id === "bee" || entity.id === "bat") && !this.reducedMotion)
+      y += Math.sin(this.elapsedSeconds * 5) * 2;
+    if (entity.height > 40) {
+      ctx.fillStyle = "#18272c2b";
+      ctx.beginPath();
+      ctx.ellipse(pos.x, pos.y - 1, entity.height * 0.23, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    this.atlas.draw(
+      ctx,
+      entity.atlas,
+      this.entityFrame(entity),
+      pos.x,
+      y,
+      entity.height,
+      !this.paused && this.hovered?.id === entity.id,
+    );
+    if (
+      done &&
+      entity.type === "puzzle" &&
+      /signal|breaker|lamp|lights|lock|door/.test(entity.id)
+    ) {
+      ctx.fillStyle = "#b9ffb3";
+      ctx.fillRect(pos.x - 2, pos.y - entity.height + 9, 4, 3);
+    }
+    const age = this.elapsedSeconds - (this.doneAt.get(entity.id) ?? -99);
+    if (done && age < 1.2 && !this.reducedMotion) {
+      ctx.globalAlpha = 1 - age / 1.2;
+      ctx.fillStyle = this.level.palette.accentSoft;
+      for (let i = 0; i < 5; i++) {
+        const angle = i * Math.PI * 0.4;
+        ctx.fillRect(
+          pos.x + Math.cos(angle) * age * 20,
+          pos.y - entity.height * 0.5 + Math.sin(angle) * age * 16 - age * 15,
+          2,
+          2,
+        );
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  private drawHazard(h: HazardSpec) {
+    const phase = this.phase(h);
+    if (phase === "safe" && !this.dangerAssist) return;
+    const ctx = this.ctx,
+      r = h.rect,
+      cx = r.x + r.width / 2,
+      cy = r.y + r.height / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r.width / 2, r.height / 2, 0, 0, Math.PI * 2);
+    if (this.dangerAssist) {
+      ctx.strokeStyle =
+        phase === "active"
+          ? "#ff8772"
+          : phase === "warning"
+            ? "#ffe49d"
+            : "#fcdf934d";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 7]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.clip();
+    if (phase !== "safe") {
+      ctx.fillStyle = phase === "active" ? `${h.color}25` : `${h.color}10`;
+      ctx.fillRect(r.x, r.y, r.width, r.height);
+      ctx.strokeStyle = phase === "active" ? h.color : `${h.color}aa`;
+      ctx.fillStyle = h.color;
+      ctx.lineWidth = 1.5;
+      const weather = /水|洪|潮|浪|涌|蒸/.test(h.title),
+        count = phase === "active" ? 22 : 7;
+      for (let i = 0; i < count; i++) {
+        const x = r.x + ((i * 53.7) % r.width),
+          y =
+            r.y +
+            ((i * 31.3 + this.elapsedSeconds * (phase === "active" ? 55 : 17)) %
+              r.height);
+        if (weather) {
+          ctx.beginPath();
+          ctx.ellipse(x, y, 8 + (i % 7), 2, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          ctx.globalAlpha = 0.35 + (i % 3) * 0.2;
+          ctx.fillRect(
+            x,
+            y,
+            phase === "active" ? 4 : 2,
+            phase === "active" ? 7 : 2,
+          );
+        }
+      }
+    }
+    ctx.restore();
+  }
+  private drawAtmosphere() {
+    if (this.reducedMotion) return;
+    const ctx = this.ctx,
+      t = this.elapsedSeconds;
+    const rain = /rain-city|storm-mountain/.test(this.level.environment),
+      snow = this.level.environment === "snow-station";
+    ctx.save();
+    ctx.globalAlpha = rain ? 0.14 : 0.55;
+    ctx.fillStyle = snow ? "#ffffff" : "#fffbd2";
+    ctx.strokeStyle = "#d1ebf8";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < (rain ? 65 : 18); i++) {
+      const x = (i * 131.4 + t * (rain ? -15 : 8) + 1600) % 1600,
+        y = (i * 71.8 + t * (rain ? 160 : snow ? 18 : -5) + 900) % 900;
+      if (rain) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 3, y + 13);
+        ctx.stroke();
+      } else if (
+        snow ||
+        ["flower-valley", "glow-cave", "autumn-river"].includes(
+          this.level.environment,
+        )
+      )
+        ctx.fillRect(x, y, 2, 2);
+    }
+    ctx.restore();
+  }
+  private drawMinimap() {
+    const ctx = this.miniContext,
+      w = this.minimap.width,
+      h = this.minimap.height,
+      map = this.images.get(this.level.id);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#142b33";
+    ctx.fillRect(0, 0, w, h);
+    if (map?.complete && map.naturalWidth) ctx.drawImage(map, 0, 0, w, h);
+    const sx = w / 1600,
+      sy = h / 900;
+    for (let y = 0; y < FOG_ROWS; y++)
+      for (let x = 0; x < FOG_COLS; x++) {
+        const q = p((x + 0.5) * FOG, (y + 0.5) * FOG);
+        ctx.fillStyle = !this.explored.has(y * FOG_COLS + x)
+          ? "#10232b"
+          : distance(q, this.player) > VISION
+            ? "#14252c85"
+            : "#112a3020";
+        ctx.fillRect(
+          x * FOG * sx,
+          y * FOG * sy,
+          Math.ceil(FOG * sx),
+          Math.ceil(FOG * sy),
+        );
+      }
+    this.entities.forEach((entity) => {
+      if (!this.discovered.has(entity.id)) return;
+      const pos = this.entityPosition(entity);
+      ctx.fillStyle = this.done(entity)
+        ? "#a2d3b1"
+        : entity.type === "side"
+          ? "#9ddbcf"
+          : "#f4da88";
+      ctx.fillRect(pos.x * sx - 1.5, pos.y * sy - 1.5, 3, 3);
+    });
+    this.level.hazards.forEach((hazard) => {
+      const center = p(
+        hazard.rect.x + hazard.rect.width / 2,
+        hazard.rect.y + hazard.rect.height / 2,
+      );
+      if (
+        this.phase(hazard) === "safe" ||
+        !this.seen(center) ||
+        distance(center, this.player) > 280
+      )
+        return;
+      ctx.fillStyle = this.phase(hazard) === "active" ? "#ff8b78" : "#ffe19d";
+      ctx.beginPath();
+      ctx.moveTo(center.x * sx, center.y * sy - 4);
+      ctx.lineTo(center.x * sx - 3, center.y * sy + 3);
+      ctx.lineTo(center.x * sx + 3, center.y * sy + 3);
+      ctx.closePath();
+      ctx.fill();
+    });
+    if (this.markedUntil > this.elapsedSeconds) {
+      const target = this.currentPuzzle()?.position ?? this.level.exit;
+      ctx.strokeStyle = "#ffe2a0";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(target.x * sx, target.y * sy, 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#eff8ec77";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      this.camera.x * sx,
+      this.camera.y * sy,
+      this.width * sx,
+      this.height * sy,
+    );
+    if (this.destination) {
+      ctx.strokeStyle = "#e6f4ce88";
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(this.player.x * sx, this.player.y * sy);
+      this.path.forEach((q) => ctx.lineTo(q.x * sx, q.y * sy));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.save();
+    ctx.translate(this.player.x * sx, this.player.y * sy);
+    ctx.rotate(
+      { down: Math.PI, right: -Math.PI / 2, up: 0, left: Math.PI / 2 }[
+        this.facing
+      ],
+    );
+    ctx.fillStyle = "#fff7d3";
+    ctx.strokeStyle = "#253c46";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(4, 4);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-4, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    const label = document.getElementById("regionName");
+    if (label) label.textContent = this.nav.regionAt(this.player);
+  }
+  private persist() {
+    if (!this.started) return;
+    this.save.levels[this.level.id] = {
+      solved: [...this.solved],
+      sideTasks: [...this.sideTasks],
+      hintsUsed: this.hintCount,
+      deaths: this.deathCount,
+      explored: [...this.explored],
+      checkpoint: { ...this.checkpoint },
+      hintStages: { ...this.hintStages },
     };
-    this.save.levels[this.level.id] = levelState;
-    localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
-  }
-
-  private loadSave(): CampaignSave {
-    const fresh: CampaignSave = { version: 2, unlocked: 1, completed: [], stamps: [], levels: {} };
     try {
-      const parsed = JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null") as Partial<CampaignSave> | null;
-      if (!parsed || parsed.version !== 2) return fresh;
+      localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
+    } catch {
+      this.hooks.onToast("本地存储不可用，本次进度暂留在内存中。");
+    }
+  }
+  private loadSave(): CampaignSave {
+    const fresh: CampaignSave = {
+      version: 2,
+      unlocked: 1,
+      completed: [],
+      stamps: [],
+      levels: {},
+    };
+    try {
+      const parsed = JSON.parse(
+        localStorage.getItem(SAVE_KEY) ?? "null",
+      ) as CampaignSave | null;
+      if (parsed?.version !== 2) return fresh;
+      const completed = Array.isArray(parsed.completed)
+        ? parsed.completed.filter((id) => LEVELS.some((l) => l.id === id))
+        : [];
       return {
         version: 2,
-        unlocked: clamp(parsed.unlocked ?? 1, 1, LEVELS.length),
-        completed: Array.isArray(parsed.completed) ? parsed.completed : [],
-        stamps: Array.isArray(parsed.stamps) ? parsed.stamps : [],
+        unlocked: clamp(Number(parsed.unlocked) || 1, 1, 8),
+        completed,
+        stamps: LEVELS.filter((l) => completed.includes(l.id)).map(
+          (l) => l.stamp,
+        ),
         levels: parsed.levels ?? {},
       };
     } catch {
       return fresh;
     }
-  }
-
-  private emitView() {
-    this.hooks.onView(this.getView());
-  }
-
-  private hexAlpha(color: string, alpha: number) {
-    if (!color.startsWith("#") || color.length !== 7) return color;
-    return `${color}${Math.round(clamp(alpha, 0, 1) * 255).toString(16).padStart(2, "0")}`;
   }
 }

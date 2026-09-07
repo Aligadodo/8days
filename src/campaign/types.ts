@@ -118,6 +118,9 @@ export interface PersistedLevelState {
   sideTasks: string[];
   hintsUsed: number;
   deaths: number;
+  explored?: number[];
+  checkpoint?: Point;
+  hintStages?: Record<string, number>;
 }
 
 export interface CampaignSave {
