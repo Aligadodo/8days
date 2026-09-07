@@ -31,6 +31,13 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 const point = (x: number, y: number): Point => ({ x, y });
 const inside = (point: Point, area: Rect, padding = 0) =>
   point.x >= area.x - padding && point.x <= area.x + area.width + padding && point.y >= area.y - padding && point.y <= area.y + area.height + padding;
+const distanceToSegment = (candidate: Point, start: Point, end: Point) => {
+  const dx = end.x - start.x; const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return distance(candidate, start);
+  const t = clamp(((candidate.x - start.x) * dx + (candidate.y - start.y) * dy) / lengthSquared, 0, 1);
+  return distance(candidate, point(start.x + dx * t, start.y + dy * t));
+};
 
 export class CampaignGame {
   readonly canvas: HTMLCanvasElement;
@@ -62,6 +69,8 @@ export class CampaignGame {
   private reducedMotion = false;
   private pointerDown = false;
   private lastPointerRouteAt = 0;
+  private readonly mapImages = new Map<string, HTMLImageElement>();
+  private heroSprite: HTMLCanvasElement | null = null;
 
   constructor(canvas: HTMLCanvasElement, hooks: CampaignHooks) {
     this.canvas = canvas;
@@ -70,6 +79,7 @@ export class CampaignGame {
     this.ctx = context;
     this.hooks = hooks;
     this.save = this.loadSave();
+    this.preloadAssets();
     this.resize();
     this.bindInput();
     window.addEventListener("resize", () => this.resize());
@@ -212,6 +222,46 @@ export class CampaignGame {
 
   destroy() {
     this.running = false;
+  }
+
+  private preloadAssets() {
+    for (const level of LEVELS) {
+      if (this.mapImages.has(level.background)) continue;
+      const image = new Image();
+      image.decoding = "async";
+      image.src = level.background;
+      this.mapImages.set(level.background, image);
+    }
+
+    const hero = new Image();
+    hero.decoding = "async";
+    hero.onload = () => {
+      const keyed = document.createElement("canvas");
+      keyed.width = hero.naturalWidth;
+      keyed.height = hero.naturalHeight;
+      const keyedContext = keyed.getContext("2d", { willReadFrequently: true });
+      if (!keyedContext) return;
+      keyedContext.drawImage(hero, 0, 0);
+      const pixels = keyedContext.getImageData(0, 0, keyed.width, keyed.height);
+      let minX = keyed.width; let minY = keyed.height; let maxX = 0; let maxY = 0;
+      for (let y = 0; y < keyed.height; y += 1) {
+        for (let x = 0; x < keyed.width; x += 1) {
+          const index = (y * keyed.width + x) * 4;
+          const red = pixels.data[index]; const green = pixels.data[index + 1]; const blue = pixels.data[index + 2];
+          const magenta = red > 145 && blue > 145 && red - green > 58 && blue - green > 58;
+          if (magenta) pixels.data[index + 3] = 0;
+          else if (pixels.data[index + 3] > 0) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
+        }
+      }
+      keyedContext.putImageData(pixels, 0, 0);
+      if (maxX <= minX || maxY <= minY) return;
+      const trimmed = document.createElement("canvas");
+      trimmed.width = maxX - minX + 1;
+      trimmed.height = maxY - minY + 1;
+      trimmed.getContext("2d")?.drawImage(keyed, minX, minY, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height);
+      this.heroSprite = trimmed;
+    };
+    hero.src = "/assets/hero-chibi.png";
   }
 
   private bindInput() {
@@ -384,6 +434,15 @@ export class CampaignGame {
     this.elapsedSeconds += delta;
     if (this.path.length > 0) {
       const next = this.path[0];
+      if (this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "active" && inside(next, hazard.rect, 8))) {
+        this.path = [];
+        this.focus = null;
+        this.hooks.onToast("前方危险正在发生，路线已暂停；等征兆消退或从侧面绕行。", "danger");
+        this.hooks.onAudio({ id: "nav.route.blocked", caption: "前方危险，路线暂停" });
+      }
+    }
+    if (this.path.length > 0) {
+      const next = this.path[0];
       const dx = next.x - this.player.x;
       const dy = next.y - this.player.y;
       const remaining = Math.hypot(dx, dy);
@@ -422,6 +481,7 @@ export class CampaignGame {
 
   private updateHazards() {
     for (const hazard of this.level.hazards) {
+      if (this.isHazardDisabled(hazard)) continue;
       const cycle = Math.floor(this.elapsedSeconds / hazard.period);
       const phase = this.elapsedSeconds % hazard.period;
       if (phase >= hazard.warningFrom && phase < hazard.activeFrom && this.warnedCycles.get(hazard.id) !== cycle) {
@@ -472,12 +532,21 @@ export class CampaignGame {
     const palette = this.level.palette;
     ctx.fillStyle = palette.ground;
     ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    this.drawGroundPattern(ctx);
-    this.drawEnvironmentFeatures(ctx, time);
-    this.drawRoute(ctx);
-    this.level.blockers.forEach((blocker, index) => this.drawBlocker(ctx, blocker, index));
-    this.level.landmarks.forEach((landmark) => this.drawLandmark(ctx, landmark.position, landmark.icon, landmark.title, landmark.size ?? 68));
-    this.level.hazards.forEach((hazard) => this.drawHazard(ctx, hazard, time));
+    const background = this.mapImages.get(this.level.background);
+    if (background?.complete && background.naturalWidth > 0) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(background, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+      ctx.imageSmoothingEnabled = false;
+      this.drawAtmosphere(ctx, time);
+    } else {
+      this.drawGroundPattern(ctx);
+      this.drawEnvironmentFeatures(ctx, time);
+      this.drawRoute(ctx);
+      this.level.blockers.forEach((blocker, index) => this.drawBlocker(ctx, blocker, index));
+      this.level.landmarks.forEach((landmark) => this.drawLandmark(ctx, landmark.position, landmark.icon, landmark.title, landmark.size ?? 68));
+    }
+    this.level.hazards.filter((hazard) => !this.isHazardDisabled(hazard)).forEach((hazard) => this.drawHazard(ctx, hazard, time));
+    this.drawResolvedAreas(ctx, time);
     this.level.sideTasks.forEach((side) => this.drawSideTask(ctx, side, time));
     this.level.puzzles.forEach((puzzle) => this.drawPuzzle(ctx, puzzle, time));
     this.drawExit(ctx, time);
@@ -494,6 +563,71 @@ export class CampaignGame {
         if (seed < 7) ctx.fillRect(x, y, seed % 2 === 0 ? 5 : 8, seed % 3 === 0 ? 3 : 5);
       }
     }
+  }
+
+  private drawAtmosphere(ctx: CanvasRenderingContext2D, time: number) {
+    const kind = this.level.environment;
+    ctx.save();
+    if (kind === "rain-city" || kind === "storm-mountain") {
+      ctx.globalAlpha = kind === "storm-mountain" ? .38 : .26;
+      ctx.strokeStyle = kind === "storm-mountain" ? "#d7e6ef" : "#d8f5ff";
+      ctx.lineWidth = kind === "storm-mountain" ? 2.2 : 1.6;
+      for (let x = -40; x < WORLD_WIDTH + 80; x += 48) {
+        const fall = this.reducedMotion ? (x * 5) % WORLD_HEIGHT : (time * (kind === "storm-mountain" ? 190 : 125) + x * 4) % (WORLD_HEIGHT + 80) - 40;
+        ctx.beginPath(); ctx.moveTo(x, fall); ctx.lineTo(x - 12, fall + 24); ctx.stroke();
+      }
+    } else if (kind === "snow-station") {
+      ctx.globalAlpha = .75; ctx.fillStyle = "#ffffff";
+      for (let i = 0; i < 100; i += 1) {
+        const x = (i * 137 + (this.reducedMotion ? 0 : time * (9 + i % 6))) % WORLD_WIDTH;
+        const y = (i * 71 + (this.reducedMotion ? 0 : time * (18 + i % 9))) % WORLD_HEIGHT;
+        const size = 2 + i % 3; ctx.fillRect(x, y, size, size);
+      }
+    } else {
+      const colors = kind === "glow-cave" ? ["#65f5d0", "#ad86ff", "#fff09c"] : kind === "autumn-river" ? ["#f2a14d", "#dc6f45", "#ffe09a"] : ["#fff5a5", "#f5b5dc", "#b2f5e8"];
+      ctx.globalAlpha = kind === "night-office" ? .18 : .52;
+      for (let i = 0; i < (kind === "night-office" ? 12 : 34); i += 1) {
+        const x = (i * 197 + (this.reducedMotion ? 0 : time * (3 + i % 4))) % WORLD_WIDTH;
+        const y = (i * 113 + Math.sin(time + i) * (this.reducedMotion ? 0 : 8)) % WORLD_HEIGHT;
+        ctx.fillStyle = colors[i % colors.length]; ctx.fillRect(x, y, 3 + i % 3, 3 + i % 2);
+      }
+    }
+    ctx.restore();
+  }
+
+  private drawResolvedAreas(ctx: CanvasRenderingContext2D, time: number) {
+    for (const hazard of this.level.hazards) {
+      if (!this.isHazardDisabled(hazard)) continue;
+      const center = point(hazard.rect.x + hazard.rect.width / 2, hazard.rect.y + hazard.rect.height / 2);
+      ctx.save(); ctx.globalAlpha = .55; ctx.fillStyle = "#b9ffe2";
+      for (let i = 0; i < 7; i += 1) {
+        const angle = i * .9 + (this.reducedMotion ? 0 : time * .18);
+        const radius = 22 + i * 5;
+        ctx.fillRect(center.x + Math.cos(angle) * radius - 2, center.y + Math.sin(angle) * radius * .45 - 2, 4, 4);
+      }
+      ctx.restore();
+    }
+  }
+
+  private drawMarkerLabel(ctx: CanvasRenderingContext2D, position: Point, label: string, border: string) {
+    ctx.save(); ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const width = Math.max(84, Math.min(180, ctx.measureText(label).width + 24));
+    const x = position.x - width / 2; const y = position.y + 31;
+    ctx.fillStyle = "#142432e8"; ctx.fillRect(x, y, width, 26);
+    ctx.strokeStyle = border; ctx.lineWidth = 2; ctx.strokeRect(x, y, width, 26);
+    ctx.fillStyle = "#fff9dc"; ctx.fillText(label, position.x, y + 13);
+    ctx.restore();
+  }
+
+  private isHazardDisabled(hazard: HazardSpec) {
+    return Boolean(hazard.disabledBy && this.solved.has(hazard.disabledBy));
+  }
+
+  private hazardPhase(hazard: HazardSpec): "safe" | "warning" | "active" {
+    const phase = this.elapsedSeconds % hazard.period;
+    if (phase >= hazard.activeFrom) return "active";
+    if (phase >= hazard.warningFrom) return "warning";
+    return "safe";
   }
 
   private drawRoute(ctx: CanvasRenderingContext2D) {
@@ -616,49 +750,61 @@ export class CampaignGame {
     const current = this.getCurrentPuzzle()?.id === puzzle.id;
     const hover = this.hovered?.type === "puzzle" && this.hovered.id === puzzle.id;
     const pulse = this.reducedMotion ? 0 : Math.sin(time * 4 + puzzle.position.x) * 3;
+    const radius = solved ? 14 : 18;
+    ctx.save();
+    ctx.translate(puzzle.position.x, puzzle.position.y);
     if ((available && !solved) || hover) {
-      ctx.strokeStyle = current ? this.level.palette.accent : "#d8f3ff";
-      ctx.lineWidth = current ? 5 : 3;
-      ctx.strokeRect(puzzle.position.x - 27 - pulse, puzzle.position.y - 27 - pulse, 54 + pulse * 2, 54 + pulse * 2);
+      ctx.shadowBlur = current ? 22 : 13;
+      ctx.shadowColor = current ? this.level.palette.accent : "#c6fff2";
+      ctx.strokeStyle = current ? "#fff0a3" : "#d5fff5";
+      ctx.lineWidth = current ? 4 : 2;
+      ctx.beginPath(); ctx.arc(0, 0, radius + 9 + pulse, 0, Math.PI * 2); ctx.stroke();
     }
-    ctx.fillStyle = solved ? "#79d69a" : available ? this.level.palette.accent : "#77818a";
-    ctx.fillRect(puzzle.position.x - 20, puzzle.position.y - 20, 40, 40);
-    ctx.fillStyle = this.level.palette.shadow;
-    ctx.fillRect(puzzle.position.x - 14, puzzle.position.y - 14, 28, 28);
-    ctx.fillStyle = solved ? "#baffcf" : available ? this.level.palette.accentSoft : "#9ca3aa";
-    ctx.font = "bold 18px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(solved ? "✓" : puzzle.icon, puzzle.position.x, puzzle.position.y);
-    ctx.font = "bold 12px sans-serif"; ctx.fillStyle = "#f9fbfb";
-    ctx.fillText(solved ? `${puzzle.symbol}=${puzzle.rewardDigit}` : puzzle.title, puzzle.position.x, puzzle.position.y + 36);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = solved ? "#4e9e7a" : available ? this.level.palette.accent : "#5b6670";
+    ctx.strokeStyle = solved ? "#c9ffe6" : available ? "#fff3b1" : "#9da5aa";
+    ctx.lineWidth = 3;
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.rotate(-Math.PI / 4);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = solved ? "#e1fff0" : available ? this.level.palette.shadow : "#d2d7da";
+    ctx.font = `bold ${solved ? 15 : 17}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(solved ? "✓" : puzzle.icon, 0, 0);
+    ctx.restore();
+    if (current || hover) this.drawMarkerLabel(ctx, puzzle.position, solved ? `${puzzle.symbol}＝${puzzle.rewardDigit}` : puzzle.title, current ? "#d3a62e" : "#5f877e");
   }
 
   private drawSideTask(ctx: CanvasRenderingContext2D, side: SideTaskSpec, time: number) {
     const done = this.sideTasks.has(side.id);
     const hover = this.hovered?.type === "side" && this.hovered.id === side.id;
     const pulse = this.reducedMotion ? 0 : Math.sin(time * 3 + side.position.y) * 2;
-    if (!done || hover) {
-      ctx.strokeStyle = "#82e5cf"; ctx.lineWidth = 3;
-      ctx.strokeRect(side.position.x - 22 - pulse, side.position.y - 22 - pulse, 44 + pulse * 2, 44 + pulse * 2);
-    }
-    ctx.fillStyle = done ? "#5f927f" : "#49bba1";
-    ctx.fillRect(side.position.x - 16, side.position.y - 16, 32, 32);
-    ctx.fillStyle = "#eafff9"; ctx.font = "bold 14px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.save();
+    ctx.shadowBlur = done ? 0 : 12 + pulse;
+    ctx.shadowColor = "#75efd3";
+    ctx.fillStyle = done ? "#527b70cc" : "#1f6d65ee";
+    ctx.strokeStyle = done ? "#86aa9f" : "#9dffe9";
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(side.position.x, side.position.y, done ? 13 : 17 + pulse * .3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#effffb"; ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(done ? "✓" : side.icon, side.position.x, side.position.y);
+    ctx.restore();
+    if (hover) this.drawMarkerLabel(ctx, side.position, side.title, "#318d7c");
   }
 
   private drawExit(ctx: CanvasRenderingContext2D, time: number) {
     const ready = this.solved.size === this.level.puzzles.length;
     const pulse = this.reducedMotion ? 0 : Math.sin(time * 3) * 4;
-    ctx.strokeStyle = ready ? "#fff0a3" : "#8f929b";
-    ctx.lineWidth = ready ? 6 : 3;
-    ctx.strokeRect(this.level.exit.x - 30 - pulse, this.level.exit.y - 35 - pulse, 60 + pulse * 2, 70 + pulse * 2);
-    ctx.fillStyle = ready ? this.level.palette.accent : "#626975";
-    ctx.fillRect(this.level.exit.x - 24, this.level.exit.y - 29, 48, 58);
-    ctx.fillStyle = this.level.palette.shadow;
-    ctx.fillRect(this.level.exit.x - 17, this.level.exit.y - 20, 34, 42);
-    ctx.fillStyle = ready ? this.level.palette.accentSoft : "#a1a5ab";
-    ctx.font = "bold 17px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(ready ? "终" : `${this.solved.size}/4`, this.level.exit.x, this.level.exit.y);
+    ctx.save(); ctx.translate(this.level.exit.x, this.level.exit.y);
+    ctx.shadowBlur = ready ? 24 : 5; ctx.shadowColor = ready ? "#ffe77d" : "#9aa7ad";
+    ctx.strokeStyle = ready ? "#fff1a6" : "#9ca6aa"; ctx.lineWidth = ready ? 5 : 3;
+    ctx.beginPath(); ctx.arc(0, 0, 24 + pulse, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = ready ? "#6f5420dd" : "#303b43cc"; ctx.beginPath(); ctx.arc(0, 0, 19, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = ready ? "#fff3b5" : "#c2c9cb";
+    ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(ready ? "终" : `${this.solved.size}/4`, 0, 0); ctx.restore();
+    if (this.hovered?.type === "exit" || ready) this.drawMarkerLabel(ctx, this.level.exit, ready ? "重组今日口令" : "终点尚未开启", ready ? "#b58b24" : "#67747b");
   }
 
   private drawHazard(ctx: CanvasRenderingContext2D, hazard: HazardSpec, time: number) {
@@ -667,23 +813,26 @@ export class CampaignGame {
     const active = phase >= hazard.activeFrom;
     if (!warning && !active && !this.dangerAssist) return;
     const alpha = active ? 0.34 : warning ? 0.16 + Math.sin(time * 10) * 0.08 : 0.08;
+    const cx = hazard.rect.x + hazard.rect.width / 2; const cy = hazard.rect.y + hazard.rect.height / 2;
+    ctx.save();
     ctx.fillStyle = this.hexAlpha(hazard.color, alpha);
-    ctx.fillRect(hazard.rect.x, hazard.rect.y, hazard.rect.width, hazard.rect.height);
     ctx.strokeStyle = hazard.color;
     ctx.lineWidth = active ? 5 : 3;
     ctx.setLineDash(active ? [] : [10, 7]);
-    ctx.strokeRect(hazard.rect.x, hazard.rect.y, hazard.rect.width, hazard.rect.height);
+    ctx.beginPath(); ctx.ellipse(cx, cy, hazard.rect.width / 2, hazard.rect.height / 2, -.12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.setLineDash([]);
     if (warning || active) {
       ctx.fillStyle = "#1d2430"; ctx.fillRect(hazard.rect.x, hazard.rect.y - 25, Math.min(220, hazard.title.length * 15 + 44), 22);
       ctx.fillStyle = hazard.color; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
       ctx.fillText(`${active ? "!" : "△"} ${hazard.title}`, hazard.rect.x + 7, hazard.rect.y - 14);
     }
+    ctx.restore();
   }
 
   private drawBreadcrumbs(ctx: CanvasRenderingContext2D, time: number) {
     const points = [this.player, ...this.path];
-    ctx.fillStyle = this.level.palette.accent;
+    const risky = points.some((candidate) => this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) !== "safe" && inside(candidate, hazard.rect, 12)));
+    ctx.fillStyle = risky ? "#ff9d63" : this.level.palette.accent;
     for (let i = 0; i < points.length - 1; i += 1) {
       const start = points[i]; const end = points[i + 1]; const length = distance(start, end);
       for (let along = 20; along < length; along += 34) {
@@ -699,6 +848,13 @@ export class CampaignGame {
   private drawPlayer(ctx: CanvasRenderingContext2D, time: number) {
     const bob = this.path.length && !this.reducedMotion ? Math.sin(time * 15) * 2 : 0;
     const x = Math.round(this.player.x); const y = Math.round(this.player.y + bob);
+    ctx.fillStyle = "#17263388"; ctx.beginPath(); ctx.ellipse(x, y + 23, 19, 7, 0, 0, Math.PI * 2); ctx.fill();
+    if (this.heroSprite) {
+      ctx.save(); ctx.translate(x, y); ctx.scale(this.player.facing, 1);
+      ctx.drawImage(this.heroSprite, -31, -66, 62, 92);
+      ctx.restore();
+      return;
+    }
     ctx.fillStyle = "#26394b"; ctx.fillRect(x - 12, y + 11, 24, 8);
     ctx.fillStyle = "#f0b18a"; ctx.fillRect(x - 9, y - 19, 18, 16);
     ctx.fillStyle = "#4b352f"; ctx.fillRect(x - 10, y - 22, 20, 7);
@@ -746,9 +902,12 @@ export class CampaignGame {
     const came = new Map<string, string>();
     const scores = new Map<string, number>([[key(startCell.x, startCell.y), 0]]);
     const blocked = (x: number, y: number) => {
-      if (x === endCell.x && y === endCell.y) return false;
       const center = point(x * GRID + GRID / 2, y * GRID + GRID / 2);
-      return this.level.blockers.some((area) => inside(center, area, this.player.radius + 3));
+      const activeDanger = this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "active" && inside(center, hazard.rect, this.player.radius + 3));
+      if (activeDanger) return true;
+      if (x === endCell.x && y === endCell.y) return false;
+      const outsideNavigation = this.level.route.slice(1).every((routePoint, index) => distanceToSegment(center, this.level.route[index], routePoint) > 118);
+      return outsideNavigation || this.level.blockers.some((area) => inside(center, area, this.player.radius + 3));
     };
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     let found = false;
@@ -760,7 +919,10 @@ export class CampaignGame {
       for (const [dx, dy] of dirs) {
         const nx = current.x + dx; const ny = current.y + dy;
         if (nx < 1 || ny < 1 || nx >= cols - 1 || ny >= rows - 1 || blocked(nx, ny)) continue;
-        const nextKey = key(nx, ny); const tentative = current.g + 1;
+        const nextKey = key(nx, ny);
+        const center = point(nx * GRID + GRID / 2, ny * GRID + GRID / 2);
+        const warningCost = this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "warning" && inside(center, hazard.rect, 18)) ? 8 : 0;
+        const tentative = current.g + 1 + warningCost;
         if (tentative >= (scores.get(nextKey) ?? Infinity)) continue;
         scores.set(nextKey, tentative);
         came.set(nextKey, key(current.x, current.y));

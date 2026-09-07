@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 - 2026-09-07
+
+- Replaced all eight programmatic whitebox environments with authored high-detail 16:9 pixel-art scene paintings derived from the approved concept direction.
+- Added a unified chibi traveler asset with a yellow rain jacket and turquoise backpack, including runtime chroma-key trimming for a clean canvas sprite.
+- Re-authored player starts, puzzle anchors, side-task anchors, exits, danger zones, and hidden navigation networks against the new environment compositions.
+- Replaced persistent debug rectangles and labels with gold diamond main-task markers, mint circular side-task markers, compact contextual labels, circular exits, and elliptical danger telegraphs.
+- Added level-art thumbnails to the campaign selector so all eight visual identities are visible before unlock.
+- Added danger-aware mouse routing: active hazards block pathfinding, warning zones add route cost, and routes pause if a danger activates ahead.
+- Added puzzle-to-world causality: solving the rain drain removes electrified water and solving the waterfall valves calms the rapid, both with a restored-area sparkle state.
+- Fixed fullscreen rendering to letterbox the 16:9 canvas instead of stretching it to arbitrary monitor ratios.
+- Added runtime validation for production map paths, hazard-resolution references, and interaction connectivity to authored navigation networks.
+- Added a three-role AI player review covering art direction, exploration usability, and level-design integrity.
+
 ## 0.8.0 - 2026-09-07
 
 - Replaced the single-level implementation with a data-driven eight-level campaign covering rain commute, late office, flower valley, rainbow falls, autumn river, mountain storm, snow station, and glowing underground river.

@@ -13,6 +13,14 @@ const palettes: Record<string, Palette> = {
 
 const rect = (x: number, y: number, width: number, height: number): Rect => ({ x, y, width, height });
 const point = (x: number, y: number): Point => ({ x, y });
+const pointSegmentDistance = (candidate: Point, start: Point, end: Point) => {
+  const dx = end.x - start.x; const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (!lengthSquared) return Math.hypot(candidate.x - start.x, candidate.y - start.y);
+  const raw = ((candidate.x - start.x) * dx + (candidate.y - start.y) * dy) / lengthSquared;
+  const t = Math.max(0, Math.min(1, raw));
+  return Math.hypot(candidate.x - (start.x + dx * t), candidate.y - (start.y + dy * t));
+};
 
 export const LEVELS: LevelDefinition[] = [
   {
@@ -22,6 +30,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "别让赶路盖过了观察",
     stamp: "好",
     environment: "rain-city",
+    background: "/assets/maps/day01-rain-city.png",
     intro: "一夜暴雨淹了旧城区。去车站报平安，但每一条看似更快的路都可能正在变化。",
     goal: "抵达车站，并把沿途四处安全信息重新拼成报平安口令。",
     ending: "站台灯亮起来。你发出三个字：我到了。",
@@ -30,12 +39,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.rain,
     weatherIcon: "☂",
     startTime: "07:18",
-    playerStart: point(125, 765),
-    exit: point(1470, 140),
-    route: [point(125, 765), point(335, 690), point(555, 715), point(710, 560), point(920, 575), point(1040, 390), point(1260, 330), point(1470, 140)],
+    playerStart: point(330, 340),
+    exit: point(1240, 785),
+    route: [point(330, 340), point(540, 400), point(800, 470), point(900, 610), point(800, 470), point(350, 585), point(800, 470), point(800, 280), point(800, 470), point(1160, 500), point(1230, 690), point(1240, 785)],
     puzzles: [
       {
-        id: "drain-order", kind: "sequence", icon: "▥", symbol: "闸", title: "被堵住的雨水篦", position: point(345, 690),
+        id: "drain-order", kind: "sequence", icon: "▥", symbol: "闸", title: "被堵住的雨水篦", position: point(900, 610),
         story: "积水已经碰到路边配电箱。清理顺序错了，会先把自己置于危险里。",
         prompt: "按安全顺序处理积水点。",
         evidence: ["配电箱底部有水痕，侧面的红色拉杆仍在“通”。", "落叶压住了篦盖，警示牌倒在干燥的人行道上。"],
@@ -46,7 +55,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["红色拉杆比落叶更值得先看。", "先断电并提醒路人，再接触积水附近的东西。", "顺序是：断电 → 立警示牌 → 移落叶 → 开雨水篦。"],
       },
       {
-        id: "bus-route", kind: "choice", icon: "▤", symbol: "车", title: "停摆的电子站牌", position: point(695, 560), requires: ["drain-order"],
+        id: "bus-route", kind: "choice", icon: "▤", symbol: "车", title: "停摆的电子站牌", position: point(350, 585), requires: ["drain-order"],
         story: "三条接驳线只剩一条能穿过涨水后的城区。站牌还保存着最后一次路况广播。",
         prompt: "根据高程与封路信息，选出仍可通行的接驳线。",
         evidence: ["广播：河东路低于警戒水位 0.4 米；隧道口封闭。", "2 路经过高架、医院坡道与北广场；7 路经过隧道；9 路经过河东路。"],
@@ -56,7 +65,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["把广播里的两个禁区圈出来。", "隧道和河东路都不能走，只剩经过高处的线路。", "选择 2 路高架接驳。"],
       },
       {
-        id: "signal-cycle", kind: "pattern", icon: "◈", symbol: "灯", title: "失灵的过街信号", position: point(1035, 390), requires: ["bus-route"],
+        id: "signal-cycle", kind: "pattern", icon: "◈", symbol: "灯", title: "失灵的过街信号", position: point(805, 470), requires: ["bus-route"],
         story: "信号灯在重启后丢失了最后三个状态。路口监控留下了循环规律。",
         prompt: "补全下一轮行人信号。",
         evidence: ["记录依次为：停、停、看、走｜停、停、看、走。", "控制器提示：每四拍循环，第三拍确认左右，第四拍才放行。"],
@@ -66,7 +75,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["每四拍会完整重复一次。", "下一轮应从前一轮的开头重新开始。", "三个格子依次是：停、停、看。"],
       },
       {
-        id: "platform-lock", kind: "number", icon: "▣", symbol: "站", title: "站务应急柜", position: point(1260, 325), requires: ["signal-cycle"],
+        id: "platform-lock", kind: "number", icon: "▣", symbol: "站", title: "站务应急柜", position: point(1225, 690), requires: ["signal-cycle"],
         story: "应急柜里有开往安全站台的钥匙，柜门密码是仍可用的站台编号。",
         prompt: "算出唯一满足广播条件的站台编号。",
         evidence: ["广播：单号站台停运；6 号积水；编号大于 7。", "本站只有 1—9 号站台。"],
@@ -77,18 +86,18 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "help-cat", icon: "猫", title: "纸箱里的小猫", position: point(535, 720), prompt: "把纸箱挪到屋檐下。", completeText: "小猫抖掉雨水，冲你轻轻叫了一声。" },
-      { id: "call-home", icon: "☎", title: "借来的电话", position: point(915, 570), prompt: "告诉家里你正在走安全路线。", completeText: "电话那头只说：慢一点，不要急。" },
+      { id: "help-cat", icon: "猫", title: "纸箱里的小猫", position: point(1160, 500), prompt: "把纸箱挪到屋檐下。", completeText: "小猫抖掉雨水，冲你轻轻叫了一声。" },
+      { id: "call-home", icon: "☎", title: "借来的电话", position: point(800, 280), prompt: "告诉家里你正在走安全路线。", completeText: "电话那头只说：慢一点，不要急。" },
     ],
     hazards: [
-      { id: "live-water", title: "带电积水", rect: rect(520, 585, 150, 100), period: 8, warningFrom: 2.5, activeFrom: 5.2, warning: "水面出现蓝白电弧", lesson: "积水靠近电力设施时，不要涉水；先断电并绕行。", color: "#8fe8ff" },
-      { id: "falling-sign", title: "松动招牌", rect: rect(1070, 285, 125, 95), period: 9, warningFrom: 3.8, activeFrom: 6.5, warning: "招牌吱呀摇晃，碎屑开始掉落", lesson: "大风暴雨时远离松动招牌和临时搭建物。", color: "#ffd25f" },
+      { id: "live-water", title: "带电积水", rect: rect(785, 490, 180, 95), period: 8, warningFrom: 2.5, activeFrom: 5.2, warning: "水面出现蓝白电弧", lesson: "积水靠近电力设施时，不要涉水；先断电并绕行。", color: "#8fe8ff", disabledBy: "drain-order" },
+      { id: "falling-sign", title: "松动招牌", rect: rect(700, 215, 180, 95), period: 9, warningFrom: 3.8, activeFrom: 6.5, warning: "招牌吱呀摇晃，碎屑开始掉落", lesson: "大风暴雨时远离松动招牌和临时搭建物。", color: "#ffd25f" },
     ],
     landmarks: [
       { title: "老公寓", icon: "⌂", position: point(115, 710), size: 75 }, { title: "早餐铺", icon: "☕", position: point(300, 820), size: 56 },
       { title: "高架桥", icon: "桥", position: point(760, 660), size: 72 }, { title: "北站", icon: "站", position: point(1480, 92), size: 90 },
     ],
-    blockers: [rect(0, 0, 70, 900), rect(1530, 0, 70, 900), rect(420, 390, 170, 95), rect(850, 165, 180, 100)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "late-office",
@@ -97,6 +106,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "完成工作不等于忽略身体",
     stamp: "好",
     environment: "night-office",
+    background: "/assets/maps/day02-night-office.png",
     intro: "写字楼已经熄了一半的灯。打印最后一份文件，带上仍没回家的同事，从安全楼梯离开。",
     goal: "恢复四处安全设施，判断真正可用的撤离路线。",
     ending: "凌晨的风吹散烟味。你关掉工作群，第一次说：先回家。",
@@ -105,12 +115,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.office,
     weatherIcon: "☾",
     startTime: "23:42",
-    playerStart: point(135, 135),
-    exit: point(1450, 760),
-    route: [point(135, 135), point(395, 145), point(395, 330), point(690, 330), point(690, 585), point(1010, 585), point(1010, 745), point(1450, 760)],
+    playerStart: point(280, 760),
+    exit: point(1390, 610),
+    route: [point(280, 760), point(520, 670), point(560, 610), point(350, 235), point(560, 610), point(930, 675), point(1160, 500), point(1290, 245), point(1160, 500), point(1260, 560), point(1390, 610)],
     puzzles: [
       {
-        id: "breaker", kind: "choice", icon: "⚡", symbol: "电", title: "发热的配电箱", position: point(390, 145),
+        id: "breaker", kind: "choice", icon: "⚡", symbol: "电", title: "发热的配电箱", position: point(930, 675),
         story: "茶水间传来焦糊味。四个分闸里只有一个同时满足标签和电流记录。",
         prompt: "找出应立即断开的分闸。",
         evidence: ["打印机 2A、走廊灯 1A、茶水间 9A、电梯待机 2A。", "告示：夜间任何支路超过 6A 都应断开检查。"],
@@ -120,7 +130,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["比较每个支路与 6A。", "只有一个读数大于 6A。", "断开 C 茶水间。"],
       },
       {
-        id: "alarm", kind: "sequence", icon: "◎", symbol: "铃", title: "静音的火警控制器", position: point(395, 330), requires: ["breaker"],
+        id: "alarm", kind: "sequence", icon: "◎", symbol: "铃", title: "静音的火警控制器", position: point(1290, 245), requires: ["breaker"],
         story: "轻烟从吊顶渗出，控制器被误设为静音。面板旁贴着处置流程。",
         prompt: "恢复报警并组织撤离。",
         evidence: ["流程图的箭头：确认火情 → 触发报警 → 提醒同层人员 → 走安全楼梯。", "红字：不得先乘电梯，不得独自寻找火源。"],
@@ -130,7 +140,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["先确认，再让整层楼知道。", "报警之后再组织人员进入安全楼梯。", "确认 → 报警 → 通知 → 楼梯。"],
       },
       {
-        id: "stair-map", kind: "pattern", icon: "▧", symbol: "梯", title: "缺角的疏散图", position: point(690, 585), requires: ["alarm"],
+        id: "stair-map", kind: "pattern", icon: "▧", symbol: "梯", title: "缺角的疏散图", position: point(1160, 500), requires: ["alarm"],
         story: "烟让东侧通道不可见。疏散图用箭头重复标出绕开中庭的路径。",
         prompt: "补全缺失的三个方向。",
         evidence: ["完整段为：右、下、下、右｜右、下、下、右。", "缺口从下一段的第一格开始。"],
@@ -140,7 +150,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["竖线把相同的四步分开。", "缺口就是下一轮的前三步。", "右、下、下。"],
       },
       {
-        id: "door-code", kind: "number", icon: "▦", symbol: "门", title: "消防门磁锁", position: point(1010, 745), requires: ["stair-map"],
+        id: "door-code", kind: "number", icon: "▦", symbol: "门", title: "消防门磁锁", position: point(1320, 570), requires: ["stair-map"],
         story: "门锁检修码由值班表推导，不是墙上被涂掉的旧密码。",
         prompt: "输入今晚的两位检修码。",
         evidence: ["规则：楼层数 × 当班人数。", "你在 12 楼，今晚仍在岗 3 人。"],
@@ -151,8 +161,8 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "water-coworker", icon: "杯", title: "伏案的同事", position: point(650, 330), prompt: "叫醒同事，并递给她一杯水。", completeText: "她保存文件，和你一起离开。" },
-      { id: "turn-off-screen", icon: "屏", title: "亮着的会议室", position: point(985, 585), prompt: "关闭无人会议室的屏幕和插座。", completeText: "蓝光熄灭，窗外的月亮清楚了一点。" },
+      { id: "water-coworker", icon: "杯", title: "伏案的同事", position: point(560, 610), prompt: "叫醒同事，并递给她一杯水。", completeText: "她保存文件，和你一起离开。" },
+      { id: "turn-off-screen", icon: "屏", title: "亮着的会议室", position: point(350, 235), prompt: "关闭无人会议室的屏幕和插座。", completeText: "蓝光熄灭，窗外的月亮清楚了一点。" },
     ],
     hazards: [
       { id: "ceiling", title: "松动吊顶", rect: rect(540, 430, 140, 105), period: 8.5, warningFrom: 3, activeFrom: 6, warning: "吊顶灰尘簌簌落下", lesson: "火灾和漏水后应避开变形、掉粉的吊顶区域。", color: "#ffcf79" },
@@ -162,7 +172,7 @@ export const LEVELS: LevelDefinition[] = [
       { title: "开放工位", icon: "桌", position: point(145, 200), size: 70 }, { title: "会议室", icon: "会", position: point(620, 250), size: 65 },
       { title: "电梯厅", icon: "梯", position: point(1050, 420), size: 70 }, { title: "安全出口", icon: "出", position: point(1465, 810), size: 88 },
     ],
-    blockers: [rect(0, 0, 65, 900), rect(1535, 0, 65, 900), rect(500, 0, 45, 280), rect(810, 335, 45, 250), rect(1120, 590, 210, 50)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "flower-valley",
@@ -171,6 +181,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "不用走得最快",
     stamp: "生",
     environment: "flower-valley",
+    background: "/assets/maps/day03-flower-valley.png",
     intro: "把勿忘我的种子送到山顶小屋。花谷的旧水路、风铃和脚印都记得一部分答案。",
     goal: "修好花谷的四件小事，让山顶小屋想起今天。",
     ending: "你没有立刻赶路，而是在花里坐了一会儿。",
@@ -179,12 +190,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.flower,
     weatherIcon: "☀",
     startTime: "09:10",
-    playerStart: point(120, 760),
-    exit: point(1460, 125),
-    route: [point(120, 760), point(350, 690), point(540, 735), point(720, 575), point(875, 470), point(1060, 520), point(1240, 300), point(1460, 125)],
+    playerStart: point(760, 820),
+    exit: point(1245, 155),
+    route: [point(760, 820), point(620, 690), point(450, 610), point(350, 430), point(450, 610), point(760, 680), point(1320, 740), point(1450, 560), point(1320, 740), point(1120, 520), point(1245, 155)],
     puzzles: [
       {
-        id: "mill", kind: "sequence", icon: "◉", symbol: "轮", title: "沉默的小水磨", position: point(350, 690),
+        id: "mill", kind: "sequence", icon: "◉", symbol: "轮", title: "沉默的小水磨", position: point(350, 430),
         story: "水轮没有坏，只是水槽被春叶塞住。木牌说，销钉不能在轮子受力时拔出。",
         prompt: "按正确顺序恢复水磨。",
         evidence: ["闸门开着，水槽堵塞，轮轴销钉歪斜。", "木牌：停水以后再碰轮轴。"],
@@ -194,7 +205,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["木牌首先要求“停水”。", "停水、清堵、修轴，最后才恢复水流。", "关闸 → 清叶 → 扶销 → 开闸。"],
       },
       {
-        id: "picnic", kind: "choice", icon: "▨", symbol: "席", title: "少了一角的野餐席", position: point(710, 575), requires: ["mill"],
+        id: "picnic", kind: "choice", icon: "▨", symbol: "席", title: "少了一角的野餐席", position: point(1320, 740), requires: ["mill"],
         story: "风把三块补丁吹到附近。只有一块的花纹和缺口两侧都能连续。",
         prompt: "选择正确的补丁。",
         evidence: ["缺口左边是蓝花，右边是黄格；上下针脚都是短—长—短。", "A：蓝花/黄格、短—长—短；B：黄格/蓝花；C：蓝花/黄格、长—短—长。"],
@@ -204,7 +215,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["两个条件必须同时成立。", "左右是蓝花到黄格，针脚是短—长—短。", "选择 A 蓝花补丁。"],
       },
       {
-        id: "flower-bells", kind: "pattern", icon: "✿", symbol: "花", title: "风铃花圃", position: point(1060, 520), requires: ["picnic"],
+        id: "flower-bells", kind: "pattern", icon: "✿", symbol: "花", title: "风铃花圃", position: point(1120, 520), requires: ["picnic"],
         story: "四种风铃花按晨风顺序开合。石碑留下两个完整小节。",
         prompt: "补全第三小节。",
         evidence: ["蓝、白、蓝、黄｜蓝、白、蓝、黄。", "石碑：每次黄花合拢，就从蓝花重新开始。"],
@@ -214,7 +225,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["竖线是每个小节的边界。", "第三小节重复前四朵的顺序。", "蓝、白、蓝。"],
       },
       {
-        id: "footprints", kind: "number", icon: "❖", symbol: "印", title: "溪边脚印", position: point(1240, 300), requires: ["flower-bells"],
+        id: "footprints", kind: "number", icon: "❖", symbol: "印", title: "溪边脚印", position: point(1245, 210), requires: ["flower-bells"],
         story: "两只小动物都过了溪，但来回的脚印叠在一起。告示要求只数朝山顶的一组。",
         prompt: "有几组脚印朝向山顶？",
         evidence: ["兔印：两组朝山顶，一组朝河边。", "鹿印：没有朝山顶，三组朝河边。"],
@@ -225,8 +236,8 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "tea", icon: "杯", title: "野餐的热茶", position: point(540, 735), prompt: "把掉在草边的杯子放回野餐篮。", completeText: "杯底留着一点春天的茶香。" },
-      { id: "bee", icon: "蜂", title: "迷路的小蜂", position: point(885, 460), prompt: "把它引向开花更密的山坡。", completeText: "小蜂绕你一圈，钻进花海。" },
+      { id: "tea", icon: "杯", title: "野餐的热茶", position: point(1390, 755), prompt: "把掉在草边的杯子放回野餐篮。", completeText: "杯底留着一点春天的茶香。" },
+      { id: "bee", icon: "蜂", title: "迷路的小蜂", position: point(1450, 560), prompt: "把它引向开花更密的山坡。", completeText: "小蜂绕你一圈，钻进花海。" },
     ],
     hazards: [
       { id: "wind", title: "山谷强风", rect: rect(810, 335, 155, 105), period: 8, warningFrom: 2.5, activeFrom: 5.7, warning: "草尖齐齐伏向一边，风铃急响", lesson: "强风前会有一致的环境征兆；躲到岩石背风面再前进。", color: "#fff49b" },
@@ -236,7 +247,7 @@ export const LEVELS: LevelDefinition[] = [
       { title: "花谷入口", icon: "花", position: point(115, 820), size: 62 }, { title: "旧水磨", icon: "轮", position: point(330, 630), size: 76 },
       { title: "彩木桥", icon: "桥", position: point(860, 610), size: 72 }, { title: "山顶小屋", icon: "⌂", position: point(1470, 78), size: 92 },
     ],
-    blockers: [rect(0, 0, 60, 900), rect(1540, 0, 60, 900), rect(520, 430, 115, 90), rect(930, 175, 165, 80)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "rainbow-falls",
@@ -245,6 +256,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "水会告诉你什么时候该等",
     stamp: "活",
     environment: "rainbow-falls",
+    background: "/assets/maps/day04-rainbow-falls.png",
     intro: "瀑布后的观景台只有在水位合适时开放。沿水声而上，恢复古老的水路标记。",
     goal: "读懂四种水流迹象，在彩虹出现前抵达观景台。",
     ending: "云没有立刻散。你和陌生旅人一起等到了彩虹。",
@@ -253,12 +265,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.falls,
     weatherIcon: "◒",
     startTime: "15:26",
-    playerStart: point(150, 160),
-    exit: point(1435, 180),
-    route: [point(150, 160), point(335, 300), point(250, 520), point(500, 700), point(760, 610), point(930, 400), point(1160, 520), point(1320, 330), point(1435, 180)],
+    playerStart: point(150, 790),
+    exit: point(1265, 150),
+    route: [point(150, 790), point(300, 650), point(300, 520), point(570, 540), point(810, 520), point(900, 230), point(810, 520), point(1120, 480), point(1265, 150)],
     puzzles: [
       {
-        id: "valves", kind: "pattern", icon: "◌", symbol: "阀", title: "三级分水阀", position: point(335, 300),
+        id: "valves", kind: "pattern", icon: "◌", symbol: "阀", title: "三级分水阀", position: point(300, 520),
         story: "三道阀门要让水轮受力均匀。石槽上的水痕记录了昨天的状态。",
         prompt: "恢复三道阀门的开合状态。",
         evidence: ["左槽水痕高、中槽无水痕、右槽水痕高。", "刻字：有水痕为开，无水痕为关。"],
@@ -268,7 +280,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["逐格对照左、中、右水槽。", "高水痕代表开，无水痕代表关。", "开、关、开。"],
       },
       {
-        id: "lily-path", kind: "sequence", icon: "❀", symbol: "叶", title: "睡莲踏石", position: point(500, 700), requires: ["valves"],
+        id: "lily-path", kind: "sequence", icon: "❀", symbol: "叶", title: "睡莲踏石", position: point(810, 520), requires: ["valves"],
         story: "四片大叶会在被踩后下沉。蜻蜓停留的次序提示了安全路线。",
         prompt: "按蜻蜓到访顺序踏过睡莲。",
         evidence: ["蓝蜻蜓停在圆叶，红蜻蜓停在缺口叶，金蜻蜓停在尖叶，最后都飞向双瓣叶。", "岸边画着：蓝 → 红 → 金 → 相会。"],
@@ -278,7 +290,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["岸边的颜色顺序对应蜻蜓停过的叶形。", "蓝是圆叶，红是缺口叶，金是尖叶。", "圆叶 → 缺口叶 → 尖叶 → 双瓣叶。"],
       },
       {
-        id: "gondola", kind: "choice", icon: "舟", symbol: "舟", title: "峡谷吊篮", position: point(930, 400), requires: ["lily-path"],
+        id: "gondola", kind: "choice", icon: "舟", symbol: "舟", title: "峡谷吊篮", position: point(900, 230), requires: ["lily-path"],
         story: "吊篮限重 90 公斤。你、背包和三块配重必须做出唯一安全取舍。",
         prompt: "选择不会超重又能压稳缆绳的组合。",
         evidence: ["你 55kg，背包 10kg；吊篮至少需要 15kg 配重。", "蓝石 10kg，黄石 15kg，红石 25kg；总重不得超过 90kg。"],
@@ -288,7 +300,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["先算你和背包已经有 65kg。", "配重至少 15kg，但加完不能超过 90kg。", "黄石 15kg 是唯一稳妥选择。"],
       },
       {
-        id: "rainbow-time", kind: "number", icon: "⌒", symbol: "虹", title: "观景台日晷", position: point(1320, 330), requires: ["gondola"],
+        id: "rainbow-time", kind: "number", icon: "⌒", symbol: "虹", title: "观景台日晷", position: point(1265, 185), requires: ["gondola"],
         story: "石刻写着彩虹会在阳光越过第六道水帘时出现。计时轮每道间隔三分钟。",
         prompt: "从第一道到第六道需要等待几分钟？",
         evidence: ["相邻水帘之间间隔 3 分钟。", "从第一道数到第六道，共跨过 5 个间隔。"],
@@ -299,18 +311,18 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "photo", icon: "相", title: "起雾的镜头", position: point(760, 610), prompt: "替旅人擦干相机镜头。", completeText: "她答应把彩虹照片寄给你。" },
-      { id: "fern", icon: "蕨", title: "洞里的幼蕨", position: point(1160, 520), prompt: "把挡住滴水的碎石移开。", completeText: "水珠重新落在卷曲的新叶上。" },
+      { id: "photo", icon: "相", title: "起雾的镜头", position: point(570, 540), prompt: "替旅人擦干相机镜头。", completeText: "她答应把彩虹照片寄给你。" },
+      { id: "fern", icon: "蕨", title: "洞里的幼蕨", position: point(1120, 480), prompt: "把挡住滴水的碎石移开。", completeText: "水珠重新落在卷曲的新叶上。" },
     ],
     hazards: [
-      { id: "rapid", title: "突涨急流", rect: rect(570, 510, 150, 115), period: 8.5, warningFrom: 2.5, activeFrom: 5.5, warning: "上游水声突然变沉，泡沫加速", lesson: "溪流变浑、变响或泡沫加速时，立即离开低处。", color: "#91efff" },
+      { id: "rapid", title: "突涨急流", rect: rect(570, 510, 150, 115), period: 8.5, warningFrom: 2.5, activeFrom: 5.5, warning: "上游水声突然变沉，泡沫加速", lesson: "溪流变浑、变响或泡沫加速时，立即离开低处。", color: "#91efff", disabledBy: "valves" },
       { id: "wet-rock", title: "落石水帘", rect: rect(1190, 260, 125, 100), period: 9, warningFrom: 3.5, activeFrom: 6.4, warning: "岩缝渗水，细石开始弹落", lesson: "瀑布和崖壁下方出现细石时，不要停留拍照。", color: "#ffe394" },
     ],
     landmarks: [
       { title: "水车入口", icon: "轮", position: point(150, 95), size: 72 }, { title: "莲叶池", icon: "叶", position: point(480, 770), size: 70 },
       { title: "大瀑布", icon: "瀑", position: point(1100, 170), size: 100 }, { title: "彩虹台", icon: "虹", position: point(1450, 115), size: 92 },
     ],
-    blockers: [rect(0, 0, 60, 900), rect(1540, 0, 60, 900), rect(580, 190, 130, 170), rect(1030, 600, 175, 100)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "autumn-river",
@@ -319,6 +331,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "回家的路也值得认真选择",
     stamp: "明",
     environment: "autumn-river",
+    background: "/assets/maps/day05-autumn-river.png",
     intro: "傍晚的渡口即将停航。替村里送回四样东西，再赶上水位上涨前的最后一班船。",
     goal: "完成河湾交接，辨认潮汐和渡船留下的四个标记。",
     ending: "渡船靠岸时，茶馆的人问你：要不要一起吃晚饭？",
@@ -327,12 +340,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.autumn,
     weatherIcon: "◔",
     startTime: "17:06",
-    playerStart: point(130, 180),
-    exit: point(1460, 720),
-    route: [point(130, 180), point(360, 240), point(540, 410), point(720, 300), point(860, 525), point(1080, 435), point(1240, 620), point(1460, 720)],
+    playerStart: point(250, 720),
+    exit: point(1390, 700),
+    route: [point(250, 720), point(350, 570), point(520, 610), point(610, 680), point(520, 610), point(760, 445), point(1080, 430), point(1240, 330), point(1080, 430), point(1320, 650), point(1390, 700)],
     puzzles: [
       {
-        id: "tide-route", kind: "sequence", icon: "≈", symbol: "潮", title: "潮汐路标", position: point(360, 240),
+        id: "tide-route", kind: "sequence", icon: "≈", symbol: "潮", title: "潮汐路标", position: point(520, 610),
         story: "浅滩快被淹没。旧路标按地势从低到高标出撤离顺序。",
         prompt: "把四处地标按安全撤离方向排列。",
         evidence: ["沙洲海拔 1m，芦苇岸 2m，果园坡 4m，石桥台 6m。", "水位上涨时应持续往更高处移动。"],
@@ -342,7 +355,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["把四个海拔数字排成升序。", "从 1 米一路走向 6 米。", "沙洲 → 芦苇岸 → 果园坡 → 石桥台。"],
       },
       {
-        id: "ferry-balance", kind: "choice", icon: "⚖", symbol: "秤", title: "渡船配载秤", position: point(720, 300), requires: ["tide-route"],
+        id: "ferry-balance", kind: "choice", icon: "⚖", symbol: "秤", title: "渡船配载秤", position: point(610, 680), requires: ["tide-route"],
         story: "船头已有 30kg，船尾已有 20kg。必须再放一筐货，让两端相差不超过 5kg。",
         prompt: "选择放到船尾的货筐。",
         evidence: ["船头 30kg，船尾 20kg。", "梨筐 5kg，茶筐 10kg，木料 20kg。"],
@@ -352,7 +365,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["船尾需要接近船头的 30kg。", "20kg 再加多少会等于 30kg？", "选择茶筐 10kg。"],
       },
       {
-        id: "orchard-lights", kind: "pattern", icon: "✦", symbol: "灯", title: "果园归途灯", position: point(1080, 435), requires: ["ferry-balance"],
+        id: "orchard-lights", kind: "pattern", icon: "✦", symbol: "灯", title: "果园归途灯", position: point(1240, 330), requires: ["ferry-balance"],
         story: "果园灯按两亮一暗循环，缺失的三盏决定夜路方向。",
         prompt: "补全灯光状态。",
         evidence: ["亮、亮、暗｜亮、亮、暗。", "每组三盏后重新开始。"],
@@ -362,7 +375,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["每组三盏完全一样。", "新一组仍从两盏亮灯开始。", "亮、亮、暗。"],
       },
       {
-        id: "last-ticket", kind: "number", icon: "券", symbol: "票", title: "最后一张船票", position: point(1240, 620), requires: ["orchard-lights"],
+        id: "last-ticket", kind: "number", icon: "券", symbol: "票", title: "最后一张船票", position: point(1320, 650), requires: ["orchard-lights"],
         story: "票箱按乘客数发号。今天前四班分别带走 3、5、4、6 人，你是下一位。",
         prompt: "你的顺序号是多少？",
         evidence: ["前四班总人数：3 + 5 + 4 + 6。", "你的号码比此前总人数多 1。"],
@@ -373,8 +386,8 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "tea-jar", icon: "茶", title: "茶馆的空罐", position: point(540, 410), prompt: "把漂到岸边的茶罐捡回来。", completeText: "老板擦干茶罐，给你留了一张晚饭座位。" },
-      { id: "scarf", icon: "巾", title: "芦苇上的围巾", position: point(860, 525), prompt: "把围巾交给等船的孩子。", completeText: "孩子围好围巾，向你挥了挥手。" },
+      { id: "tea-jar", icon: "茶", title: "茶馆的空罐", position: point(350, 570), prompt: "把漂到岸边的茶罐捡回来。", completeText: "老板擦干茶罐，给你留了一张晚饭座位。" },
+      { id: "scarf", icon: "巾", title: "芦苇上的围巾", position: point(760, 445), prompt: "把围巾交给等船的孩子。", completeText: "孩子围好围巾，向你挥了挥手。" },
     ],
     hazards: [
       { id: "mud", title: "吞脚软泥", rect: rect(560, 520, 145, 100), period: 8, warningFrom: 2.7, activeFrom: 5.7, warning: "泥面鼓泡，落叶慢慢下陷", lesson: "河滩泥面鼓泡或物体下陷时，不要试探，沿坚实岸线绕行。", color: "#e4b060" },
@@ -384,7 +397,7 @@ export const LEVELS: LevelDefinition[] = [
       { title: "老茶馆", icon: "茶", position: point(125, 105), size: 78 }, { title: "芦苇湾", icon: "苇", position: point(520, 510), size: 70 },
       { title: "柿子园", icon: "果", position: point(1010, 305), size: 82 }, { title: "末班渡口", icon: "舟", position: point(1470, 780), size: 90 },
     ],
-    blockers: [rect(0, 0, 60, 900), rect(1540, 0, 60, 900), rect(430, 610, 160, 105), rect(890, 125, 165, 95)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "mountain-storm",
@@ -393,6 +406,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "真正的勇敢是及时改变计划",
     stamp: "天",
     environment: "storm-mountain",
+    background: "/assets/maps/day06-mountain-storm.png",
     intro: "徒步途中雷雨突然逼近。原定路线已不再安全，你要帮助同行者找到高处避难亭。",
     goal: "观察山势、雷声与水流，重建一条会随天气改变的安全路线。",
     ending: "避难亭里，大家把剩下的热水分成了五杯。",
@@ -401,12 +415,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.storm,
     weatherIcon: "ϟ",
     startTime: "14:37",
-    playerStart: point(120, 790),
-    exit: point(1430, 105),
-    route: [point(120, 790), point(330, 720), point(440, 520), point(690, 600), point(780, 370), point(1040, 440), point(1190, 245), point(1430, 105)],
+    playerStart: point(1410, 760),
+    exit: point(700, 215),
+    route: [point(1410, 760), point(1230, 650), point(1110, 560), point(940, 535), point(900, 430), point(760, 390), point(650, 350), point(700, 215)],
     puzzles: [
       {
-        id: "high-route", kind: "choice", icon: "△", symbol: "坡", title: "被冲掉的岔路牌", position: point(330, 720),
+        id: "high-route", kind: "choice", icon: "△", symbol: "坡", title: "被冲掉的岔路牌", position: point(1110, 560),
         story: "三条路分别经过河床、孤立山脊和缓坡树林。天气广播已经给出排除条件。",
         prompt: "选择雷雨中相对安全的上行路线。",
         evidence: ["广播：远离河床，也不要站上暴露山脊。", "A 沿河床；B 上孤脊；C 走有矮林的缓坡。"],
@@ -416,7 +430,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["河床和孤立高点都被点名排除。", "剩下有矮林但不靠大树的缓坡。", "选择 C 矮林缓坡。"],
       },
       {
-        id: "lightning", kind: "sequence", icon: "ϟ", symbol: "雷", title: "雷雨应对牌", position: point(440, 520), requires: ["high-route"],
+        id: "lightning", kind: "sequence", icon: "ϟ", symbol: "雷", title: "雷雨应对牌", position: point(900, 430), requires: ["high-route"],
         story: "同行者想躲到最高的树下。旧应对牌缺了编号，需要按安全动作重新排序。",
         prompt: "安排雷雨避险步骤。",
         evidence: ["先离开水边和制高点；再取下金属长杆；分散蹲低；最后等待雷声远去。", "牌脚注明：不要聚成一团。"],
@@ -426,7 +440,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["第一步应先改变所在位置。", "撤离危险地形后处理金属物，再分散降低身体。", "离开 → 放杖 → 分散蹲低 → 等待。"],
       },
       {
-        id: "echo-whistle", kind: "pattern", icon: "♪", symbol: "哨", title: "救援回声哨", position: point(780, 370), requires: ["lightning"],
+        id: "echo-whistle", kind: "pattern", icon: "♪", symbol: "哨", title: "救援回声哨", position: point(650, 350), requires: ["lightning"],
         story: "雾里只能靠回声辨路。救援哨按短短长的三拍循环。",
         prompt: "补全下一组求救信号。",
         evidence: ["短、短、长｜短、短、长。", "石壁回声在每组三拍后停一拍。"],
@@ -436,7 +450,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["竖线分开了重复的小节。", "每一组都是两短一长。", "短、短、长。"],
       },
       {
-        id: "shelter-lock", kind: "number", icon: "⌂", symbol: "亭", title: "避难亭物资锁", position: point(1190, 245), requires: ["echo-whistle"],
+        id: "shelter-lock", kind: "number", icon: "⌂", symbol: "亭", title: "避难亭物资锁", position: point(700, 235), requires: ["echo-whistle"],
         story: "物资锁密码是营地编号与救援队数的乘积。",
         prompt: "计算两位物资锁密码。",
         evidence: ["你在 6 号营地。", "今天有 3 支救援队巡山。"],
@@ -447,8 +461,8 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "raincoat", icon: "衣", title: "破开的雨衣", position: point(690, 600), prompt: "用胶带替同行者补好雨衣。", completeText: "他把自己的备用灯交给了你。" },
-      { id: "thermos", icon: "壶", title: "滚下坡的水壶", position: point(1040, 440), prompt: "在下一阵雨前捡回保温壶。", completeText: "壶里的水还温着。" },
+      { id: "raincoat", icon: "衣", title: "破开的雨衣", position: point(1490, 700), prompt: "用胶带替同行者补好雨衣。", completeText: "他把自己的备用灯交给了你。" },
+      { id: "thermos", icon: "壶", title: "滚下坡的水壶", position: point(1230, 650), prompt: "在下一阵雨前捡回保温壶。", completeText: "壶里的水还温着。" },
     ],
     hazards: [
       { id: "debris", title: "碎石滑落", rect: rect(575, 410, 145, 110), period: 8, warningFrom: 2.7, activeFrom: 5.5, warning: "坡上响起连续的石子滚动声", lesson: "先有小石滚落时就是离开坡脚的信号，不要停下观察。", color: "#ffd36a" },
@@ -458,7 +472,7 @@ export const LEVELS: LevelDefinition[] = [
       { title: "低地营位", icon: "帐", position: point(115, 845), size: 72 }, { title: "木索桥", icon: "桥", position: point(600, 650), size: 74 },
       { title: "茶歇亭", icon: "茶", position: point(1020, 520), size: 72 }, { title: "高处避难亭", icon: "亭", position: point(1440, 55), size: 96 },
     ],
-    blockers: [rect(0, 0, 60, 900), rect(1540, 0, 60, 900), rect(365, 265, 155, 105), rect(830, 535, 145, 95)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "snow-last-train",
@@ -467,6 +481,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "让彼此都赶得上温暖",
     stamp: "再",
     environment: "snow-station",
+    background: "/assets/maps/day07-snow-station.png",
     intro: "暴雪让小站停电。末班车是否进站，要靠你恢复信号、找到候车的人并确认安全站台。",
     goal: "修复雪夜小站的四个系统，帮助所有人登上末班车。",
     ending: "你把最后一个暖手包塞给孩子。列车在雪里慢慢亮起。",
@@ -475,12 +490,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.snow,
     weatherIcon: "❄",
     startTime: "21:15",
-    playerStart: point(110, 470),
-    exit: point(1490, 470),
-    route: [point(110, 470), point(330, 360), point(540, 480), point(760, 330), point(930, 480), point(1150, 350), point(1320, 480), point(1490, 470)],
+    playerStart: point(250, 590),
+    exit: point(1450, 610),
+    route: [point(250, 590), point(560, 520), point(850, 460), point(980, 690), point(850, 460), point(1160, 375), point(1380, 560), point(1450, 610)],
     puzzles: [
       {
-        id: "signal-order", kind: "sequence", icon: "●", symbol: "号", title: "积雪信号机", position: point(330, 360),
+        id: "signal-order", kind: "sequence", icon: "●", symbol: "号", title: "积雪信号机", position: point(980, 690),
         story: "信号机被雪覆盖。检修卡要求在通电前完成机械检查。",
         prompt: "按检修顺序恢复信号。",
         evidence: ["检修卡：清雪 → 查灯罩 → 扳手动杆 → 恢复电源。", "红字：带电时禁止触碰结冰灯罩。"],
@@ -490,7 +505,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["卡片上的箭头就是操作顺序。", "先清理和检查，再操作，最后通电。", "清雪 → 查灯罩 → 扳杆 → 通电。"],
       },
       {
-        id: "lamp-pattern", kind: "pattern", icon: "✦", symbol: "灯", title: "候车室应急灯", position: point(760, 330), requires: ["signal-order"],
+        id: "lamp-pattern", kind: "pattern", icon: "✦", symbol: "灯", title: "候车室应急灯", position: point(850, 460), requires: ["signal-order"],
         story: "应急灯用暖、冷、冷三色循环指向有供暖的房间。",
         prompt: "补全下一组三盏灯。",
         evidence: ["暖、冷、冷｜暖、冷、冷。", "每组三盏后方向箭头重新出现。"],
@@ -500,7 +515,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["观察竖线两侧是否相同。", "下一组仍以暖灯开始，随后两盏冷灯。", "暖、冷、冷。"],
       },
       {
-        id: "lost-tag", kind: "choice", icon: "牌", symbol: "牌", title: "无人认领的行李牌", position: point(1150, 350), requires: ["lamp-pattern"],
+        id: "lost-tag", kind: "choice", icon: "牌", symbol: "牌", title: "无人认领的行李牌", position: point(1160, 375), requires: ["lamp-pattern"],
         story: "三位乘客在找箱子，行李牌只留下目的地和颜色线索。",
         prompt: "把蓝箱交给正确的人。",
         evidence: ["蓝箱去北山；红箱不去海湾；陈姨去海湾。", "阿洛不去北山；小岚的箱子是蓝色。"],
@@ -510,7 +525,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["最后一句已经直接限定了蓝箱的主人。", "小岚的箱子是蓝色。", "选择小岚。"],
       },
       {
-        id: "carriage", kind: "number", icon: "▤", symbol: "厢", title: "被雪盖住的编组表", position: point(1320, 480), requires: ["lost-tag"],
+        id: "carriage", kind: "number", icon: "▤", symbol: "厢", title: "被雪盖住的编组表", position: point(1380, 560), requires: ["lost-tag"],
         story: "暖气车厢编号是列车总节数减去两节货厢。",
         prompt: "暖气车厢编号是多少？",
         evidence: ["末班车共 8 节，从车头编号 1—8。", "最后两节是货厢；暖气车厢紧挨货厢之前。"],
@@ -521,8 +536,8 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "warm-pack", icon: "暖", title: "冻僵的候车人", position: point(540, 480), prompt: "把备用暖手包交给老人。", completeText: "老人把围巾分给了旁边的孩子。" },
-      { id: "snowman", icon: "雪", title: "站台小雪人", position: point(930, 480), prompt: "把掉落的红帽放回雪人头上。", completeText: "候车室里传来一小片笑声。" },
+      { id: "warm-pack", icon: "暖", title: "冻僵的候车人", position: point(560, 520), prompt: "把备用暖手包交给老人。", completeText: "老人把围巾分给了旁边的孩子。" },
+      { id: "snowman", icon: "雪", title: "站台小雪人", position: point(850, 460), prompt: "把掉落的红帽放回雪人头上。", completeText: "候车室里传来一小片笑声。" },
     ],
     hazards: [
       { id: "icicle", title: "屋檐冰锥", rect: rect(450, 265, 130, 100), period: 8, warningFrom: 3, activeFrom: 5.8, warning: "冰锥出现裂纹，细雪簌簌落下", lesson: "升温或震动时远离屋檐冰锥下方。", color: "#c8f5ff" },
@@ -532,7 +547,7 @@ export const LEVELS: LevelDefinition[] = [
       { title: "站前咖啡", icon: "杯", position: point(105, 350), size: 72 }, { title: "候车室", icon: "候", position: point(680, 210), size: 88 },
       { title: "信号桥", icon: "号", position: point(1060, 250), size: 75 }, { title: "末班列车", icon: "车", position: point(1490, 570), size: 105 },
     ],
-    blockers: [rect(0, 0, 60, 900), rect(1540, 0, 60, 900), rect(400, 600, 220, 55), rect(820, 175, 160, 70)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
   {
     id: "glowing-river",
@@ -541,6 +556,7 @@ export const LEVELS: LevelDefinition[] = [
     subtitle: "把记住的日子带回清晨",
     stamp: "见",
     environment: "glow-cave",
+    background: "/assets/maps/day08-glowing-river.png",
     intro: "最后的洞穴没有路牌。八天里学会的观察、等待与互助，会在发光地下河边再次被用到。",
     goal: "穿过会呼吸的洞穴，找回最后四枚记忆符号。",
     ending: "出口外没有奇迹，只有普通的清晨。八枚印章排成：好好生活，明天再见。",
@@ -549,12 +565,12 @@ export const LEVELS: LevelDefinition[] = [
     palette: palettes.cave,
     weatherIcon: "✧",
     startTime: "05:07",
-    playerStart: point(120, 740),
-    exit: point(1470, 120),
-    route: [point(120, 740), point(350, 620), point(520, 760), point(700, 520), point(900, 640), point(1050, 390), point(1260, 420), point(1470, 120)],
+    playerStart: point(430, 145),
+    exit: point(1210, 120),
+    route: [point(430, 145), point(220, 430), point(430, 145), point(600, 180), point(680, 300), point(760, 410), point(940, 540), point(1080, 470), point(1370, 350), point(1220, 300), point(1210, 120)],
     puzzles: [
       {
-        id: "crystal-safe", kind: "choice", icon: "◇", symbol: "晶", title: "共鸣水晶门", position: point(350, 620),
+        id: "crystal-safe", kind: "choice", icon: "◇", symbol: "晶", title: "共鸣水晶门", position: point(600, 180),
         story: "三簇水晶发出不同征兆。你必须用过去学会的危险判断选择可以靠近的一簇。",
         prompt: "选择没有显示失稳征兆的水晶。",
         evidence: ["A 有裂纹且落粉；B 光稳定、周围无碎屑；C 间歇尖响并轻微晃动。", "危险常先以裂纹、碎屑、异常声音和晃动出现。"],
@@ -564,7 +580,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["回想坠物发生前会出现什么。", "排除有裂纹、落粉、尖响或晃动的目标。", "选择 B 稳定水晶。"],
       },
       {
-        id: "river-pulse", kind: "pattern", icon: "≈", symbol: "波", title: "会呼吸的地下河", position: point(700, 520), requires: ["crystal-safe"],
+        id: "river-pulse", kind: "pattern", icon: "≈", symbol: "波", title: "会呼吸的地下河", position: point(760, 410), requires: ["crystal-safe"],
         story: "河面按低、低、高、静止的四拍呼吸。安全踏石只在下一拍出现。",
         prompt: "补全下一轮前三拍。",
         evidence: ["低、低、高、静｜低、低、高、静。", "每次静止后，波纹从低处重新开始。"],
@@ -574,7 +590,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["静止是每轮的终点。", "静止之后重复低、低、高。", "低、低、高。"],
       },
       {
-        id: "flower-bridge", kind: "sequence", icon: "✿", symbol: "桥", title: "发光花桥", position: point(1050, 390), requires: ["river-pulse"],
+        id: "flower-bridge", kind: "sequence", icon: "✿", symbol: "桥", title: "发光花桥", position: point(940, 540), requires: ["river-pulse"],
         story: "四朵石花分别记着前四天的动作。只有按“先安全、再前进、最后等待”的逻辑触碰才会成桥。",
         prompt: "排列四个曾救过你的动作。",
         evidence: ["先切断危险来源；再提醒同行者；确认路线后前进；抵达安全处等待。", "石花刻着：断、告、行、等。"],
@@ -584,7 +600,7 @@ export const LEVELS: LevelDefinition[] = [
         hints: ["首先控制危险来源。", "安全后要提醒他人，确认路线再走，最后等待。", "断 → 告 → 行 → 等。"],
       },
       {
-        id: "morning-count", kind: "number", icon: "☼", symbol: "晨", title: "通向清晨的石门", position: point(1260, 420), requires: ["flower-bridge"],
+        id: "morning-count", kind: "number", icon: "☼", symbol: "晨", title: "通向清晨的石门", position: point(1220, 300), requires: ["flower-bridge"],
         story: "石门问的不是死亡次数，而是一路上已经认真度过了多少个清晨。",
         prompt: "这是旅程的第几个清晨？",
         evidence: ["日志从 DAY 01 排到 DAY 08。", "眼前的洞穴标题写着 DAY 08。"],
@@ -595,8 +611,8 @@ export const LEVELS: LevelDefinition[] = [
       },
     ],
     sideTasks: [
-      { id: "bat", icon: "翼", title: "落单的小蝠", position: point(520, 760), prompt: "熄灭强光，让它沿微光飞回洞顶。", completeText: "黑暗不再显得空，翅膀声渐渐远去。" },
-      { id: "old-cart", icon: "车", title: "停住的旧矿车", position: point(900, 640), prompt: "把挡轮石重新垫稳。", completeText: "矿车不再晃动，里面躺着八朵干花。" },
+      { id: "bat", icon: "翼", title: "落单的小蝠", position: point(220, 430), prompt: "熄灭强光，让它沿微光飞回洞顶。", completeText: "黑暗不再显得空，翅膀声渐渐远去。" },
+      { id: "old-cart", icon: "车", title: "停住的旧矿车", position: point(1370, 350), prompt: "把挡轮石重新垫稳。", completeText: "矿车不再晃动，里面躺着八朵干花。" },
     ],
     hazards: [
       { id: "steam", title: "间歇蒸汽", rect: rect(570, 390, 145, 110), period: 8, warningFrom: 2.8, activeFrom: 5.6, warning: "岩缝先冒出细白雾，水珠开始震动", lesson: "间歇喷口会先泄出细雾；看见预兆应等待喷发结束。", color: "#bfffee" },
@@ -606,7 +622,7 @@ export const LEVELS: LevelDefinition[] = [
       { title: "晶簇入口", icon: "晶", position: point(115, 805), size: 78 }, { title: "地下河", icon: "波", position: point(690, 660), size: 84 },
       { title: "花桥", icon: "桥", position: point(1030, 300), size: 82 }, { title: "日出裂隙", icon: "晨", position: point(1480, 65), size: 100 },
     ],
-    blockers: [rect(0, 0, 60, 900), rect(1540, 0, 60, 900), rect(390, 330, 145, 110), rect(820, 245, 170, 95)],
+    blockers: [rect(0, 0, 55, 900), rect(1545, 0, 55, 900)],
   },
 ];
 
@@ -619,6 +635,7 @@ function validateCampaign() {
     levelIds.add(level.id);
     if (level.puzzles.length !== 4) throw new Error(`${level.name} must contain exactly four main puzzles`);
     if (level.sideTasks.length !== 2 || level.hazards.length !== 2) throw new Error(`${level.name} content budget is incomplete`);
+    if (!level.background.startsWith("/assets/maps/")) throw new Error(`${level.name} is missing its production map`);
     const symbols = new Map(level.puzzles.map((puzzle) => [puzzle.symbol, puzzle.rewardDigit]));
     const derivedCode = level.finalSymbolOrder.map((symbol) => symbols.get(symbol) ?? "?").join("");
     if (derivedCode !== level.code) throw new Error(`${level.name} final symbol order does not derive ${level.code}`);
@@ -628,6 +645,14 @@ function validateCampaign() {
       for (const required of puzzle.requires ?? []) {
         if (!level.puzzles.some((candidate) => candidate.id === required)) throw new Error(`${puzzle.title} requires an unknown puzzle`);
       }
+    }
+    for (const hazard of level.hazards) {
+      if (hazard.disabledBy && !level.puzzles.some((puzzle) => puzzle.id === hazard.disabledBy)) throw new Error(`${hazard.title} has an unknown resolution puzzle`);
+    }
+    const routeTargets = [level.playerStart, level.exit, ...level.puzzles.map((puzzle) => puzzle.position), ...level.sideTasks.map((task) => task.position)];
+    for (const target of routeTargets) {
+      const connected = level.route.slice(1).some((routePoint, index) => pointSegmentDistance(target, level.route[index], routePoint) <= 120);
+      if (!connected) throw new Error(`${level.name} contains an interaction outside the authored navigation network`);
     }
   }
   if (LEVELS.map((level) => level.stamp).join("") !== CAMPAIGN_PHRASE.replace("，", "")) throw new Error("Campaign stamps do not form the final phrase");

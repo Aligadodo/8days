@@ -75,6 +75,8 @@ export interface HazardSpec {
   warning: string;
   lesson: string;
   color: string;
+  /** Solving this puzzle permanently removes the hazard from the current run. */
+  disabledBy?: string;
 }
 
 export interface LandmarkSpec {
@@ -91,6 +93,8 @@ export interface LevelDefinition {
   subtitle: string;
   stamp: string;
   environment: EnvironmentKind;
+  /** Production environment painting, authored at a 16:9 world ratio. */
+  background: string;
   intro: string;
   goal: string;
   ending: string;
