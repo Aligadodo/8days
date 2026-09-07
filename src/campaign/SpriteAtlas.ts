@@ -131,7 +131,7 @@ export class SpriteAtlas {
       size = this.dimensions(atlas, index, height, maxWidth);
     if (Math.abs(x) > size.width / 2 + 5 || y > 6 || y < -size.height - 5)
       return false;
-    if (!sprite) return true;
+    if (!sprite) return false;
     const px = Math.floor(
         ((x + size.width / 2) / size.width) * sprite.image.width,
       ),

@@ -17,7 +17,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
-      <div class="release-chip"><i></i> LIVING WORLD 0.12.0</div>
+      <div class="release-chip"><i></i> LIVING WORLD 0.13.0</div>
     </header>
     <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
       <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
@@ -338,7 +338,7 @@ function renderPuzzleControls() {
   if (puzzle.kind === "sequence")
     controls.innerHTML = `<div class="sequence-track">${puzzle.solution.map((_, index) => `<span>${sequenceInput[index] ?? index + 1}</span>`).join("")}</div><div class="option-grid">${puzzleOptions.map((option) => `<button data-option="${option}" ${sequenceInput.includes(option) ? "disabled" : ""}>${option}</button>`).join("")}</div><button class="small-reset" data-reset>重新排序</button><button class="check-action" data-check ${sequenceInput.length !== puzzle.solution.length ? "disabled" : ""}>确认这次推理</button>`;
   else if (puzzle.kind === "choice")
-    controls.innerHTML = `<div class="choice-grid">${puzzleOptions.map((option, index) => `<button data-option="${option}"><i>${String.fromCharCode(65 + index)}</i>${option}</button>`).join("")}</div>`;
+    controls.innerHTML = `<div class="choice-grid">${puzzleOptions.map((option, index) => `<button data-option="${option}"><i aria-hidden="true">${index + 1}</i>${option}</button>`).join("")}</div>`;
   else if (puzzle.kind === "pattern")
     controls.innerHTML = `<div class="pattern-grid">${patternInput.map((value, index) => `<button data-slot="${index}"><small>${index + 1}</small><b>${value}</b><span>点击切换</span></button>`).join("")}</div><button class="check-action" data-check>检查规律</button>`;
   else {

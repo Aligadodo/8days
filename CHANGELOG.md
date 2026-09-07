@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0 - 2026-09-08
+
+- Established seven independent visual acceptance gates and split eight world definitions into separately owned files for parallel fixes plus independent review.
+- Audited all 56 original targets and seven mechanisms; bound existing map objects to interaction, reduced duplicate props, corrected support planes, scale, text and approach stances.
+- Replaced floating flat office furniture with a wall-mounted inspection control and map-matched door patches; replaced cave placeholders with authored RGBA assets and a reachable wall recess, without a road climbing the cliff.
+- Added registered scene raster loading, alpha hit tests, thin hover outlines, background-patch composition, and real baked-object redraw at support depth. Mounted props no longer receive floor shadows; unloaded or removed props cannot leave clickable rectangles.
+- Refined small-prop footprints and removed collision for collected tools without a remaining body. Preserved v2 puzzle progress with layout revision 13.
+- Corrected ambiguous load-balancing clues in the ferry and gondola puzzles without changing campaign codes.
+- Close-up office QA rejected a remaining wall-top stance and incorrectly connected pillar-side door: authored a real low-partition opening, blocked the old stance permanently, and walked the revised route in-game.
+- Removed contradictory duplicate option letters and kept small falling-object aftermath fragments on real floor only. The merged regression suite now passes 66 tests.
+- Added a no-save visual review mode to the calibration page and independent visual-contract regression tests. Static checks and art inspection remain explicitly separate from end-to-end human playtesting.
+
 ## 0.12.0 - 2026-09-08
 
 - Recalibrated eight floor plans with named furniture, wall, cliff, roof, tree and vehicle obstacles; all 56 original targets now have authored interaction stances.

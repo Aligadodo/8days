@@ -210,6 +210,7 @@ export function drawHazardObject(
   h: HazardSpec,
   s: HazardState,
   reduced: boolean,
+  isGround: (point: Point) => boolean = () => true,
 ) {
   const profile = hazardProfile(h),
     { x, y } = hazardCenter(h);
@@ -302,7 +303,8 @@ export function drawHazardObject(
     ctx.restore();
     return;
   }
-  if (s.stage === "dormant") return;
+  // The warning is dust/sound, not a row of floating polygon icons.
+  if (s.stage === "dormant" || warning) return;
   ctx.save();
   const fall = releasing
     ? clamp(s.age / profile.release, 0, 1) ** 2
@@ -311,26 +313,41 @@ export function drawHazardObject(
       : 0;
   const branch = /枝/.test(h.title),
     ice = /冰|晶/.test(h.title);
+  const scatter = [[-30, -7], [-11, 9], [19, -2], [36, 12], [-22, 18]];
   for (let i = 0; i < (branch ? 2 : 5); i++) {
-    const px = x + (i - 2) * 19,
-      py = y - 98 + fall * 95 + (i % 2) * 6;
-    if (warning) ctx.globalAlpha = 0.8;
+    const landing = { x: x + scatter[i][0], y: y + scatter[i][1] };
+    if (landed && !isGround(landing)) continue;
+    const px = landing.x, py = landing.y - 95 + fall * 95;
+    ctx.fillStyle = "#16202335";
+    if (landed) {
+      ctx.beginPath();
+      ctx.ellipse(px, py + 1, branch ? 13 : 7, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if (branch) {
-      ctx.fillStyle = "#685035";
-      ctx.fillRect(x - 46 + i * 31, py, 68, 8);
-      ctx.fillRect(x - 21 + i * 25, py - 10, 7, 15);
-    } else
+      ctx.fillStyle = "#493d30";
+      ctx.fillRect(px - 12, py - 3, 23, 4);
+      ctx.fillRect(px + 3, py - 6, 3, 6);
+      ctx.fillStyle = "#92734d";
+      ctx.fillRect(px - 9, py - 3, 15, 1);
+    } else {
+      const w = 5 + i % 3, height = landed ? 3 + i % 2 : 9 + i % 4;
       polygon(
         ctx,
         [
-          [px - 9, py - 9],
-          [px + 2, py - 16],
-          [px + 12, py - 5],
-          [px + 7, py + 5],
-          [px - 8, py + 3],
+          [px - w, py - 1],
+          [px - 2, py - height],
+          [px + w - 1, py - height + 2],
+          [px + w, py + 1],
+          [px - 3, py + 2],
         ],
-        ice ? "#accfde" : "#918b79",
+        ice ? "#799da8" : ["#656355", "#756f5e", "#575a55"][i % 3],
       );
+      polygon(ctx, [[px - w, py - 1], [px - 2, py - height], [px + 2, py - 1]],
+        ice ? "#b3ced0" : "#98907b");
+      ctx.fillStyle = ice ? "#405e67" : "#383e39";
+      ctx.fillRect(px - 2, py + 1, w, 1);
+    }
   }
   ctx.restore();
 }

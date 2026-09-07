@@ -343,7 +343,7 @@ function walkTo(game, id) {
   return entity;
 }
 
-test("office lever requires power, slides before opening, and opens a real route without crossing desks", () => {
+test("office panel requires power, finishes its action before opening, and opens a real route without crossing desks", () => {
   const game = new CampaignGame(new Canvas(), hooks);
   game.startLevel(1, true);
   game.level = { ...game.level, hazards: [] };
@@ -397,10 +397,14 @@ test("hammer, cracking, hidden cache and permanent discovery form an optional pe
   const cache = game.entities.find((e) => e.id === "cave-keepsake"),
     wall = game.entities.find((e) => e.id === "cave-wall");
   assert.equal(game.visibleEntity(cache), false);
-  assert.equal(
-    game.nav.route(game.player, cache.approach, () => false, 0).length,
-    0,
-  );
+  // The cache is now recessed in a wall, inspected from the existing track-side floor.
+  // Its stance is not a secret room; visibility and authorization gate the reward.
+  assert.ok(game.nav.route(game.player, cache.approach, () => false, 0).length);
+  walkTo(game, cache.id);
+  assert.equal(game.worldFlags.has(cache.id), false, "a hidden wall recess cannot be looted");
+  game.interact(cache);
+  assert.equal(game.worldFlags.has(cache.id), false, "prerequisites also guard direct interaction");
+  assert.equal(game.nav.isWalkable(wall), false, "the wall itself is not a floor destination");
   walkTo(game, wall.id);
   assert.equal(game.worldFlags.has(wall.id), false);
   walkTo(game, "cave-hammer");

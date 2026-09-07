@@ -2,9 +2,11 @@ import { LEVELS, getLevel } from "./levels";
 import { WORLD, clamp, contains, distance, inHazard, p } from "./navigation";
 import { WORLDS, LAYOUT_REVISION } from "./worldDesign";
 import { buildWorldNavigation, mechanismOpen } from "./worldGeometry";
-import { drawSurface, drawMechanism } from "./mechanismRendering";
+import { drawSurface, drawMechanism, drawMechanismPatch, hitMechanism } from "./mechanismRendering";
+import { SceneRaster } from "./SceneRaster";
 import { SpriteAtlas } from "./SpriteAtlas";
-import { entitiesFor, type Entity } from "./entities";
+import { entitiesFor, entityDepth, type Entity } from "./entities";
+import { drawBakedObject, drawPlacedSprite } from "./objectRendering";
 import {
   HazardDirector,
   DEATH_TIMING,
@@ -42,6 +44,7 @@ interface Footprint extends Point {
 export class CampaignGame {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly atlas = new SpriteAtlas();
+  private readonly sceneRaster = new SceneRaster();
   private readonly images = new Map<string, HTMLImageElement>();
   private readonly events = new AbortController();
   private readonly observer: ResizeObserver;
@@ -124,6 +127,11 @@ export class CampaignGame {
     this.atlas.ready.catch(() =>
       hooks.onToast("部分角色素材未载入，请刷新重试。", "danger"),
     );
+    Promise.all([...WORLDS.flatMap(w => w.mechanisms.flatMap(m =>
+      [m.art?.closed, m.art?.open].filter(a => a !== undefined).map(a => this.sceneRaster.preload(a)),
+    )), ...WORLDS.flatMap(w => w.surfaces.flatMap(s => [s.art, ...(s.variants ?? [])]
+      .filter(a => a !== undefined).map(a => this.sceneRaster.preload(a))))
+    ]).catch(() => hooks.onToast("部分场景素材未载入，请刷新重试。", "danger"));
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas);
     this.resize();
@@ -150,7 +158,7 @@ export class CampaignGame {
         .map((m) => m.reward!),
       accessHint: access
         ? (access.requires ?? []).every((id) => this.flags().has(id))
-          ? `机关已通电。找到${access.name}，点击操作后，档案柜会移开露出通路。`
+          ? `机关已通电。找到${access.name}，点击操作后，检修暗门会打开。`
           : access.hint
         : undefined,
       inventory: this.level.puzzles
@@ -614,22 +622,19 @@ export class CampaignGame {
             this.visibleEntity(e) &&
             !(e.mechanism?.kind === "gate" && this.done(e)),
         )
-        .sort((a, b) => this.entityPosition(b).y - this.entityPosition(a).y)
+        .sort((a, b) => entityDepth(b, this.entityPosition(b)) - entityDepth(a, this.entityPosition(a)))
         .find((entity) => {
           const pos = this.entityPosition(entity);
-          if (entity.baked) return contains(q, entity.baked);
           if (entity.mechanism)
-            return (
-              Math.abs(q.x - pos.x) <= entity.mechanism.width / 2 + 3 &&
-              q.y >= pos.y - entity.height &&
-              q.y <= pos.y + 5
-            );
+            return hitMechanism(this.sceneRaster, entity.mechanism, this.done(entity), q);
+          if (entity.baked) return contains(q, entity.baked);
           return this.atlas.hit(
             entity.atlas,
             this.entityFrame(entity),
             entity.height,
             q.x - pos.x,
             q.y - pos.y,
+            entity.visual?.maxWidth,
           );
         }) ?? null
     );
@@ -761,7 +766,7 @@ export class CampaignGame {
     if (mechanism?.kind === "lever")
       this.hooks.onAudio({
         id: "mechanism.slide",
-        caption: "咔嗒，柜脚沿轨道缓缓移开",
+        caption: "咔嗒，墙内锁舌松开，壁板沿暗轨退开",
       });
     this.speed = 0;
     this.face(entity.x - this.player.x, entity.y - this.player.y);
@@ -797,7 +802,7 @@ export class CampaignGame {
                 : "mechanism.latch",
         caption:
           m.kind === "breakable"
-            ? "碎石落到两边，壁龛通了"
+            ? "碎石落到两边，墙内壁龛露出来了"
             : m.kind === "cache"
               ? "翻开一页旧手记"
               : undefined,
@@ -1182,6 +1187,7 @@ export class CampaignGame {
       ctx.drawImage(map, 0, 0, 1600, 900);
     }
     this.drawCrossing();
+    this.drawScenePatches(ctx);
     this.drawAtmosphere();
     this.level.hazards.forEach((h) => this.drawHazard(h));
     this.footsteps.forEach((f) => {
@@ -1197,7 +1203,7 @@ export class CampaignGame {
       ...this.entities
         .filter((e) => this.visibleEntity(e))
         .map((entity) => ({
-          y: this.entityPosition(entity).y,
+          y: entityDepth(entity, this.entityPosition(entity)),
           draw: () => this.drawEntity(entity),
         })),
       { y: this.player.y, draw: () => this.drawPlayer() },
@@ -1212,14 +1218,14 @@ export class CampaignGame {
           );
           ctx.closePath();
           ctx.clip();
-          ctx.drawImage(map, 0, 0, 1600, 900);
+          this.redrawWorldBacking(ctx);
           ctx.restore();
         },
       })),
       ...this.level.hazards.map((h) => ({
         y: hazardCenter(h).y,
         draw: () =>
-          drawHazardObject(ctx, h, this.hazards.state(h), this.reducedMotion),
+          drawHazardObject(ctx, h, this.hazards.state(h), this.reducedMotion, p => this.nav.isWalkable(p)),
       })),
     ].sort((a, b) => a.y - b.y);
     actors.forEach((actor) => actor.draw());
@@ -1389,7 +1395,7 @@ export class CampaignGame {
     const flags = this.flags();
     for (const surface of WORLDS[this.levelIndex].surfaces)
       if (!surface.requires || flags.has(surface.requires))
-        drawSurface(this.ctx, surface);
+        drawSurface(this.ctx, this.sceneRaster, surface);
   }
   private drawEntity(entity: Entity) {
     const ctx = this.ctx,
@@ -1402,52 +1408,25 @@ export class CampaignGame {
         this.pending?.id === entity.mechanism.controlledBy;
       drawMechanism(
         ctx,
+        this.sceneRaster,
         entity.mechanism,
         done,
         controlling ? 1 - this.actionTime / this.actionDuration : 0,
         hover,
         this.elapsedSeconds - (this.doneAt.get(entity.id) ?? -99),
-        (entity.mechanism.requires ?? []).every((id) => this.flags().has(id)),
+        this.reducedMotion,
+        () => this.redrawWorldBacking(ctx),
       );
       return;
     }
     if (entity.baked) {
-      ctx.save();
-      ctx.beginPath();
-      entity.baked.forEach((p, i) =>
-        i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y),
-      );
-      ctx.closePath();
-      if (entity.id === "turn-off-screen" && done) {
-        ctx.fillStyle = "#172b35df";
-        ctx.fill();
-      }
-      if (hover) {
-        ctx.strokeStyle = "#fff1b4";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-      ctx.restore();
+      drawBakedObject(ctx, entity, done, hover, () => this.redrawWorldBacking(ctx));
       return;
     }
     let y = pos.y;
     if ((entity.id === "bee" || entity.id === "bat") && !this.reducedMotion)
       y += Math.sin(this.elapsedSeconds * 5) * 2;
-    if (entity.height > 40) {
-      ctx.fillStyle = "#18272c2b";
-      ctx.beginPath();
-      ctx.ellipse(pos.x, pos.y - 1, entity.height * 0.23, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    this.atlas.draw(
-      ctx,
-      entity.atlas,
-      this.entityFrame(entity),
-      pos.x,
-      y,
-      entity.height,
-      !this.paused && this.hovered?.id === entity.id,
-    );
+    drawPlacedSprite(ctx, this.atlas, entity, {x: pos.x, y}, this.entityFrame(entity), hover, this.level.environment);
     if (
       done &&
       entity.type === "puzzle" &&
@@ -1471,6 +1450,21 @@ export class CampaignGame {
       }
       ctx.globalAlpha = 1;
     }
+  }
+  private drawScenePatches(ctx: CanvasRenderingContext2D) {
+    for (const entity of this.entities)
+      if (entity.mechanism && this.visibleEntity(entity)) {
+        const age = this.elapsedSeconds - (this.doneAt.get(entity.mechanism.controlledBy ?? entity.id) ?? -99);
+        drawMechanismPatch(ctx, this.sceneRaster, entity.mechanism, this.done(entity),
+          this.reducedMotion ? 1 : age / 0.3);
+      }
+  }
+  private redrawWorldBacking(ctx: CanvasRenderingContext2D) {
+    const map = this.images.get(this.level.id), flags = this.flags();
+    if (map?.complete && map.naturalWidth) ctx.drawImage(map, 0, 0, 1600, 900);
+    for (const surface of WORLDS[this.levelIndex].surfaces)
+      if (!surface.requires || flags.has(surface.requires)) drawSurface(ctx, this.sceneRaster, surface);
+    this.drawScenePatches(ctx);
   }
   private drawHazard(h: HazardSpec) {
     drawHazardGround(this.ctx, h, this.hazards.state(h), {
@@ -1523,10 +1517,11 @@ export class CampaignGame {
     ctx.scale(sx, sy);
     for (const surface of WORLDS[this.levelIndex].surfaces)
       if (!surface.requires || this.flags().has(surface.requires))
-        drawSurface(ctx, surface);
+        drawSurface(ctx, this.sceneRaster, surface);
     for (const entity of this.entities)
       if (entity.mechanism && this.visibleEntity(entity))
-        drawMechanism(ctx, entity.mechanism, this.done(entity), 0, false, 99);
+        { drawMechanismPatch(ctx, this.sceneRaster, entity.mechanism, this.done(entity));
+          drawMechanism(ctx, this.sceneRaster, entity.mechanism, this.done(entity), 0, false, 99, true); }
     ctx.restore();
     for (let y = 0; y < FOG_ROWS; y++)
       for (let x = 0; x < FOG_COLS; x++) {

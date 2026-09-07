@@ -80,11 +80,22 @@ for (const [index, world] of WORLDS.entries())
       );
     }
     for (let a = 0; a < entities.length; a++)
-      for (let b = a + 1; b < entities.length; b++)
+      for (let b = a + 1; b < entities.length; b++) {
+        const embeddedCache = (inner, outer) => inner.mechanism?.kind === "cache" &&
+          outer.mechanism?.kind === "breakable" && inner.mechanism.requires?.includes(outer.id);
+        if (embeddedCache(entities[a], entities[b]) || embeddedCache(entities[b], entities[a])) continue;
+        const mountedControl = (control, door) => door.mechanism?.kind === "gate" &&
+          door.mechanism.controlledBy === control.id;
+        if (mountedControl(entities[a], entities[b]) || mountedControl(entities[b], entities[a])) continue;
+        // Early warning only: small props do not need a full furniture-sized exclusion radius.
+        // Alpha silhouettes and support planes are inspected separately in the art review.
+        const radius = (e) => Math.min(e.visual?.maxWidth ?? e.height * 0.75, e.height) / 2;
+        const spacing = Math.min(34, radius(entities[a]) + radius(entities[b]));
         assert.ok(
-          distance(entities[a], entities[b]) > 34,
+          distance(entities[a], entities[b]) > spacing,
           `${entities[a].id} overlaps ${entities[b].id}`,
         );
+      }
   });
 test("all interactions have sprites; sequence order does not reveal solution", () => {
   LEVELS.forEach((level) =>
@@ -98,6 +109,19 @@ test("all interactions have sprites; sequence order does not reveal solution", (
     if (q.kind === "sequence")
       assert.notDeepEqual(shuffledOptions(q), q.solution);
   });
+});
+
+test("picked-up tools do not retain floor collision after their artwork disappears", () => {
+  const world = WORLDS[7];
+  const tool = world.mechanisms.find(m => m.id === "cave-hammer");
+  const before = buildWorldNavigation(world, new Set());
+  const after = buildWorldNavigation(world, new Set([tool.id]));
+  assert.equal(before.blockers.length, after.blockers.length + 1);
+  assert.equal(tool.art.open, undefined, "the entire tool pouch is collected");
+  assert.ok(after.isWalkable(tool.approach), "collection keeps its authored stance usable");
+  const shoulder = { x: tool.position.x + 14, y: tool.position.y + 8 };
+  assert.equal(before.isWalkable(shoulder), false);
+  assert.equal(after.isWalkable(shoulder), true, "real track shoulder no longer has an invisible tool obstacle");
 });
 test("day identity preserves repeated stamp characters", () => {
   const completed = LEVELS.map((l) => l.id);
@@ -125,6 +149,7 @@ test("independent negative probes stay blocked on every map, including solved la
       [1089, 588],
       [1170, 488],
       [1148, 630],
+      [1002, 289], // Tea-room wall top: visually rejected during near-view play, even with the door open.
     ],
     [
       [480, 396],

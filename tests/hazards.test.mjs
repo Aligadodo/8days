@@ -15,6 +15,21 @@ const { WORLDS } = loadSource("src/campaign/worldDesign.ts");
 const sign = LEVELS[0].hazards.find((h) => h.id === "falling-sign");
 const center = hazardCenter(sign);
 
+test("fallen ceiling fragments only settle on real floor, never on wall tops", () => {
+  const { drawHazardObject } = loadSource("src/campaign/hazardRendering.ts");
+  const h = LEVELS[1].hazards.find((item) => item.id === "ceiling");
+  let fills = 0;
+  const ctx = new Proxy({}, { get: (_, key) => key === "fill" || key === "fillRect"
+    ? () => fills++ : () => {} });
+  drawHazardObject(ctx, h, { stage: "spent", age: 0 }, false, () => false);
+  assert.equal(fills, 0, "non-floor landing sites must not render rubble");
+  drawHazardObject(ctx, h, { stage: "spent", age: 0 }, false, () => true);
+  assert.ok(fills > 0, "real floor retains the aftermath");
+  fills = 0;
+  drawHazardObject(ctx, h, { stage: "warning", age: 0.5 }, false, () => true);
+  assert.equal(fills, 0, "warning uses existing dust/sound, not floating rock icons");
+});
+
 test("all 16 hazards have explicit event grammar and at least 1.5 seconds of warning", () => {
   const hazards = LEVELS.flatMap((level) => level.hazards);
   assert.equal(hazards.length, 16);

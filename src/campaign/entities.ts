@@ -1,6 +1,6 @@
 import type { AtlasName } from "./SpriteAtlas";
 import type { LevelDefinition, Point } from "./types";
-import { WORLDS, type WorldMechanism } from "./worldDesign";
+import { WORLDS, type WorldMechanism, type ObjectVisual } from "./worldDesign";
 import type { Polygon } from "./navigation";
 
 export interface Entity extends Point {
@@ -9,6 +9,7 @@ export interface Entity extends Point {
   approach: Point;
   baked?: Polygon;
   mechanism?: WorldMechanism;
+  visual?: ObjectVisual;
   atlas: AtlasName;
   frame: number;
   height: number;
@@ -108,10 +109,11 @@ export function entitiesFor(level: LevelDefinition): Entity[] {
         name: q.name,
         approach: world.approaches[q.id],
         baked: world.baked[q.id],
-        atlas,
-        frame,
-        height,
-        doneFrame,
+        visual: world.visuals[q.id],
+        atlas: world.visuals[q.id]?.atlas ?? atlas,
+        frame: world.visuals[q.id]?.frame ?? frame,
+        height: world.visuals[q.id]?.height ?? height,
+        doneFrame: world.visuals[q.id]?.frame === undefined ? doneFrame : undefined,
       };
     })
     .concat([
@@ -120,14 +122,15 @@ export function entitiesFor(level: LevelDefinition): Entity[] {
         id: "exit",
         approach: world.approaches.exit,
         baked: world.baked.exit,
+        visual: world.visuals.exit,
         type: "exit",
         name: "今日终点",
-        atlas:
+        atlas: world.visuals.exit?.atlas ?? (
           level.environment === "night-office"
             ? "utility-props"
-            : "world-props",
-        frame: level.environment === "night-office" ? 9 : 15,
-        height: 85,
+            : "world-props"),
+        frame: world.visuals.exit?.frame ?? (level.environment === "night-office" ? 9 : 15),
+        height: world.visuals.exit?.height ?? 85,
         doneFrame: undefined,
       },
     ])
@@ -139,9 +142,20 @@ export function entitiesFor(level: LevelDefinition): Entity[] {
         name: m.name,
         approach: m.approach,
         mechanism: m,
+        baked: m.baked,
+        visual: m.visual,
         atlas: "utility-props" as const,
         frame: 14,
         height: m.height,
       })),
     );
+}
+
+/** Sorting and hit testing share one support-depth rule. Ground decals never cover actors. */
+export function entityDepth(entity: Entity, position: Point = entity): number {
+  return entity.visual?.layer === "ground" ? -1 : (entity.visual?.depth ?? position.y);
+}
+export function hasGroundShadow(entity: Entity): boolean {
+  return !entity.baked && (entity.visual?.mount === "ground" || entity.visual?.mount === "actor") &&
+    entity.visual?.layer !== "ground" && entity.height > 40;
 }

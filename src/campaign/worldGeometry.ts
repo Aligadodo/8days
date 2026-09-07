@@ -39,9 +39,16 @@ export function buildWorldNavigation(
     ...Object.entries(world.positions)
       .filter(
         ([id]) =>
-          !groundMarks.has(id) && !world.baked[id] && !world.solidProps[id],
+          !groundMarks.has(id) && !world.baked[id] && !world.solidProps[id] &&
+          world.visuals[id]?.layer !== "ground" &&
+          !["wall", "table", "hanging"].includes(world.visuals[id]?.mount ?? "ground"),
       )
-      .map(([, p]) => rectangle(p.x - 13, p.y - 13, 26, 18)),
+      .map(([id, p]) => {
+        const visual = world.visuals[id];
+        const width = Math.min(26, visual?.maxWidth ?? 26, (visual?.height ?? 58) * 0.45);
+        const height = Math.min(18, width * 0.7);
+        return rectangle(p.x - width / 2, p.y - height * 0.72, width, height);
+      }),
     ...world.mechanisms
       .filter(
         (m) =>
@@ -53,6 +60,8 @@ export function buildWorldNavigation(
       .filter(
         (m) =>
           (m.kind === "tool" || m.kind === "cache") &&
+          (!mechanismOpen(m, flags) || !!m.art?.open) &&
+          !["wall", "table", "hanging"].includes(m.visual?.mount ?? "ground") &&
           (m.requires ?? []).every((id) => flags.has(id)),
       )
       .map((m) => rectangle(m.position.x - 8, m.position.y - 8, 16, 12)),
