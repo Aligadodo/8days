@@ -22,9 +22,19 @@ const SAVE_KEY = "one-more-day:campaign:v2";
 interface Player extends Point {
   radius: number;
   facing: 1 | -1;
+  verticalFacing: -1 | 0 | 1;
 }
 
 type FocusTarget = { type: "puzzle" | "side" | "exit"; id: string };
+type HeroFrame = "idle" | "walk-contact" | "walk-pass" | "back-idle" | "back-contact" | "back-pass" | "interact";
+
+interface Footprint extends Point {
+  age: number;
+  life: number;
+  side: 1 | -1;
+  directionX: number;
+  directionY: number;
+}
 
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -45,7 +55,7 @@ export class CampaignGame {
   private readonly hooks: CampaignHooks;
   private levelIndex = 0;
   private level: LevelDefinition = LEVELS[0];
-  private player: Player = { ...LEVELS[0].playerStart, radius: 14, facing: 1 };
+  private player: Player = { ...LEVELS[0].playerStart, radius: 14, facing: 1, verticalFacing: 1 };
   private camera = { x: 0, y: 0 };
   private path: Point[] = [];
   private focus: FocusTarget | null = null;
@@ -61,7 +71,6 @@ export class CampaignGame {
   private hintCount = 0;
   private deathCount = 0;
   private lastFrame = performance.now();
-  private lastFootstep = 0;
   private lastViewSecond = -1;
   private warnedCycles = new Map<string, number>();
   private save: CampaignSave;
@@ -70,7 +79,13 @@ export class CampaignGame {
   private pointerDown = false;
   private lastPointerRouteAt = 0;
   private readonly mapImages = new Map<string, HTMLImageElement>();
-  private heroSprite: HTMLCanvasElement | null = null;
+  private readonly heroSprites = new Map<HeroFrame, HTMLCanvasElement>();
+  private movementSpeed = 0;
+  private movementDirection = point(1, 0);
+  private strideDistance = 0;
+  private nextFootstepDistance = 16;
+  private footprints: Footprint[] = [];
+  private interactionUntil = 0;
 
   constructor(canvas: HTMLCanvasElement, hooks: CampaignHooks) {
     this.canvas = canvas;
@@ -133,7 +148,8 @@ export class CampaignGame {
     this.paused = false;
     this.path = [];
     this.focus = null;
-    this.player = { ...this.level.playerStart, radius: 14, facing: 1 };
+    this.player = { ...this.level.playerStart, radius: 14, facing: 1, verticalFacing: 1 };
+    this.resetMotion();
     this.camera.x = clamp(this.player.x - VIEW_WIDTH / 2, 0, WORLD_WIDTH - VIEW_WIDTH);
     this.camera.y = clamp(this.player.y - VIEW_HEIGHT / 2, 0, WORLD_HEIGHT - VIEW_HEIGHT);
     this.warnedCycles.clear();
@@ -146,6 +162,7 @@ export class CampaignGame {
   setPaused(paused: boolean) {
     this.paused = paused;
     this.path = paused ? [] : this.path;
+    if (paused) this.movementSpeed = 0;
   }
 
   setDangerAssist(enabled: boolean) {
@@ -198,7 +215,8 @@ export class CampaignGame {
     this.paused = false;
     this.path = [];
     this.focus = null;
-    this.player = { ...this.level.playerStart, radius: 14, facing: 1 };
+    this.player = { ...this.level.playerStart, radius: 14, facing: 1, verticalFacing: 1 };
+    this.resetMotion();
     this.camera.x = clamp(this.player.x - VIEW_WIDTH / 2, 0, WORLD_WIDTH - VIEW_WIDTH);
     this.camera.y = clamp(this.player.y - VIEW_HEIGHT / 2, 0, WORLD_HEIGHT - VIEW_HEIGHT);
     this.emitView();
@@ -233,6 +251,19 @@ export class CampaignGame {
       this.mapImages.set(level.background, image);
     }
 
+    const heroFrames: Array<[HeroFrame, string]> = [
+      ["idle", "/assets/hero-chibi.png"],
+      ["walk-contact", "/assets/hero-walk-contact.png"],
+      ["walk-pass", "/assets/hero-walk-pass.png"],
+      ["back-idle", "/assets/hero-back-idle.png"],
+      ["back-contact", "/assets/hero-back-walk-contact.png"],
+      ["back-pass", "/assets/hero-back-walk-pass.png"],
+      ["interact", "/assets/hero-interact.png"],
+    ];
+    heroFrames.forEach(([frame, source]) => this.loadHeroSprite(frame, source));
+  }
+
+  private loadHeroSprite(frame: HeroFrame, source: string) {
     const hero = new Image();
     hero.decoding = "async";
     hero.onload = () => {
@@ -259,9 +290,18 @@ export class CampaignGame {
       trimmed.width = maxX - minX + 1;
       trimmed.height = maxY - minY + 1;
       trimmed.getContext("2d")?.drawImage(keyed, minX, minY, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height);
-      this.heroSprite = trimmed;
+      this.heroSprites.set(frame, trimmed);
     };
-    hero.src = "/assets/hero-chibi.png";
+    hero.src = source;
+  }
+
+  private resetMotion() {
+    this.movementSpeed = 0;
+    this.movementDirection = point(1, 0);
+    this.strideDistance = 0;
+    this.nextFootstepDistance = 16;
+    this.footprints = [];
+    this.interactionUntil = 0;
   }
 
   private bindInput() {
@@ -368,6 +408,8 @@ export class CampaignGame {
   }
 
   private interact(target: FocusTarget) {
+    this.interactionUntil = performance.now() / 1000 + 0.52;
+    this.movementSpeed = 0;
     if (target.type === "exit") {
       if (this.solved.size < this.level.puzzles.length) {
         const missing = this.level.puzzles.length - this.solved.size;
@@ -432,6 +474,9 @@ export class CampaignGame {
 
   private update(delta: number) {
     this.elapsedSeconds += delta;
+    this.footprints = this.footprints
+      .map((footprint) => ({ ...footprint, age: footprint.age + delta }))
+      .filter((footprint) => footprint.age < footprint.life);
     if (this.path.length > 0) {
       const next = this.path[0];
       if (this.level.hazards.some((hazard) => !this.isHazardDisabled(hazard) && this.hazardPhase(hazard) === "active" && inside(next, hazard.rect, 8))) {
@@ -441,24 +486,35 @@ export class CampaignGame {
         this.hooks.onAudio({ id: "nav.route.blocked", caption: "前方危险，路线暂停" });
       }
     }
+
+    const targetSpeed = this.path.length > 0 ? 175 : 0;
+    const response = this.path.length > 0 ? 9.5 : 13;
+    this.movementSpeed += (targetSpeed - this.movementSpeed) * (1 - Math.exp(-response * delta));
+    if (targetSpeed === 0 && this.movementSpeed < 1) this.movementSpeed = 0;
+
     if (this.path.length > 0) {
       const next = this.path[0];
       const dx = next.x - this.player.x;
       const dy = next.y - this.player.y;
       const remaining = Math.hypot(dx, dy);
-      const step = 175 * delta;
-      if (Math.abs(dx) > 0.5) this.player.facing = dx > 0 ? 1 : -1;
+      const directionX = remaining > 0 ? dx / remaining : 0;
+      const directionY = remaining > 0 ? dy / remaining : 0;
+      const step = Math.min(remaining, this.movementSpeed * delta);
+      this.movementDirection = point(directionX, directionY);
+      if (Math.abs(directionX) > 0.12) this.player.facing = directionX > 0 ? 1 : -1;
+      this.player.verticalFacing = Math.abs(directionY) > Math.abs(directionX) * 0.72 ? (directionY > 0 ? 1 : -1) : 0;
       if (remaining <= step) {
         this.player.x = next.x;
         this.player.y = next.y;
         this.path.shift();
       } else {
-        this.player.x += (dx / remaining) * step;
-        this.player.y += (dy / remaining) * step;
+        this.player.x += directionX * step;
+        this.player.y += directionY * step;
       }
-      if (this.elapsedSeconds - this.lastFootstep > 0.28) {
-        this.lastFootstep = this.elapsedSeconds;
-        this.hooks.onAudio({ id: this.level.environment === "night-office" ? "footstep.stone" : "footstep.grass" });
+      this.strideDistance += step;
+      if (this.strideDistance >= this.nextFootstepDistance) {
+        this.leaveFootstep();
+        this.nextFootstepDistance += 30;
       }
       if (this.path.length === 0 && this.focus) {
         const target = this.focus;
@@ -477,6 +533,24 @@ export class CampaignGame {
       this.lastViewSecond = viewSecond;
       this.emitView();
     }
+  }
+
+  private leaveFootstep() {
+    const stepNumber = Math.floor(this.nextFootstepDistance / 30);
+    const side: 1 | -1 = stepNumber % 2 === 0 ? 1 : -1;
+    const perpendicular = point(-this.movementDirection.y, this.movementDirection.x);
+    this.footprints.push({
+      x: this.player.x + perpendicular.x * side * 5 - this.movementDirection.x * 5,
+      y: this.player.y + 22 + perpendicular.y * side * 5 - this.movementDirection.y * 5,
+      age: 0,
+      life: this.level.environment === "snow-station" ? 1.7 : 0.72,
+      side,
+      directionX: this.movementDirection.x,
+      directionY: this.movementDirection.y,
+    });
+    if (this.footprints.length > 16) this.footprints.shift();
+    const stone = ["rain-city", "night-office", "snow-station", "glow-cave"].includes(this.level.environment);
+    this.hooks.onAudio({ id: stone ? "footstep.stone" : this.level.environment === "autumn-river" ? "footstep.wood" : "footstep.grass" });
   }
 
   private updateHazards() {
@@ -503,6 +577,7 @@ export class CampaignGame {
     this.dead = true;
     this.paused = true;
     this.path = [];
+    this.movementSpeed = 0;
     this.deathCount += 1;
     this.persistLevel();
     this.hooks.onAudio({ id: "player.death.soft", caption: hazard.title });
@@ -551,6 +626,7 @@ export class CampaignGame {
     this.level.puzzles.forEach((puzzle) => this.drawPuzzle(ctx, puzzle, time));
     this.drawExit(ctx, time);
     if (this.path.length > 0) this.drawBreadcrumbs(ctx, time);
+    this.drawFootprints(ctx);
     this.drawPlayer(ctx, time);
   }
 
@@ -845,13 +921,66 @@ export class CampaignGame {
     }
   }
 
+  private drawFootprints(ctx: CanvasRenderingContext2D) {
+    for (const footprint of this.footprints) {
+      const progress = footprint.age / footprint.life;
+      const alpha = Math.max(0, 1 - progress);
+      ctx.save();
+      ctx.translate(Math.round(footprint.x), Math.round(footprint.y));
+      ctx.rotate(Math.atan2(footprint.directionY, footprint.directionX) + Math.PI / 2);
+      ctx.globalAlpha = alpha * (this.level.environment === "snow-station" ? 0.62 : 0.34);
+      if (this.level.environment === "rain-city" || this.level.environment === "storm-mountain") {
+        ctx.strokeStyle = "#d9f4ff";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 4 + progress * 8, 2 + progress * 4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = this.level.environment === "snow-station" ? "#eaf7ff" : this.level.palette.shadow;
+        ctx.beginPath();
+        ctx.ellipse(footprint.side * 3, 0, 3, 7, footprint.side * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha *= 0.72;
+        ctx.beginPath();
+        ctx.ellipse(footprint.side * 3, -5, 4, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
   private drawPlayer(ctx: CanvasRenderingContext2D, time: number) {
-    const bob = this.path.length && !this.reducedMotion ? Math.sin(time * 15) * 2 : 0;
-    const x = Math.round(this.player.x); const y = Math.round(this.player.y + bob);
-    ctx.fillStyle = "#17263388"; ctx.beginPath(); ctx.ellipse(x, y + 23, 19, 7, 0, 0, Math.PI * 2); ctx.fill();
-    if (this.heroSprite) {
-      ctx.save(); ctx.translate(x, y); ctx.scale(this.player.facing, 1);
-      ctx.drawImage(this.heroSprite, -31, -66, 62, 92);
+    const moving = this.movementSpeed > 7;
+    const speedRatio = clamp(this.movementSpeed / 175, 0, 1);
+    const goingUp = this.player.verticalFacing < 0;
+    const alternateStep = !this.reducedMotion && Math.floor((this.strideDistance + 14) / 30) % 2 === 1;
+    const interacting = time < this.interactionUntil;
+    let frame: HeroFrame = goingUp ? "back-idle" : "idle";
+    if (interacting) frame = "interact";
+    else if (moving && goingUp) frame = alternateStep ? "back-pass" : "back-contact";
+    else if (moving) frame = alternateStep ? "walk-pass" : "walk-contact";
+
+    const gaitLift = moving && !this.reducedMotion ? Math.abs(Math.sin((this.strideDistance / 30) * Math.PI)) * 2.4 : 0;
+    const breathing = !moving && !interacting && !this.reducedMotion ? Math.sin(time * 2.15) * 0.65 : 0;
+    const x = Math.round(this.player.x);
+    const y = Math.round(this.player.y - gaitLift + breathing);
+    const shadowWidth = 19 + speedRatio * 2 - gaitLift * 0.8;
+    ctx.fillStyle = "#17263388";
+    ctx.beginPath();
+    ctx.ellipse(x, Math.round(this.player.y + 23), shadowWidth, 7 - speedRatio * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const heroSprite = this.heroSprites.get(frame) ?? this.heroSprites.get(goingUp ? "back-idle" : "idle") ?? this.heroSprites.get("idle");
+    if (heroSprite) {
+      const targetHeight = interacting ? 94 : 92;
+      const targetWidth = clamp(targetHeight * (heroSprite.width / heroSprite.height), 54, interacting ? 78 : 70);
+      const lean = this.reducedMotion ? 0 : this.movementDirection.x * speedRatio * 0.035;
+      const squash = moving && !this.reducedMotion ? Math.sin((this.strideDistance / 30) * Math.PI) * 0.018 : 0;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(lean);
+      ctx.scale(this.player.facing * (1 + squash), 1 - squash);
+      ctx.drawImage(heroSprite, -targetWidth / 2, -targetHeight + 26, targetWidth, targetHeight);
       ctx.restore();
       return;
     }

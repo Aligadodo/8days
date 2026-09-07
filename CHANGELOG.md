@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.1 - 2026-09-07
+
+- Replaced the single-sprite sliding motion with distance-driven front and back walking frames while retaining the established yellow-coat traveler identity.
+- Added direction memory: upward routes use dedicated backpack-facing art, horizontal routes mirror consistently, and stopping preserves the last facing direction.
+- Added eased acceleration and braking, stride-synchronized body lift, subtle lean, landing squash, idle breathing, and stable foot anchoring.
+- Synchronized footstep audio with actual distance traveled instead of elapsed time and selected grass, wood, or stone cues by environment.
+- Added short-lived material feedback at each landing: rain ripples, snow impressions, and subtle ground footprints.
+- Added a distinct reaching/inspection pose for puzzle, side-task, and exit interactions.
+- Verified front gait alternation, upward gait alternation, back-facing idle settle, rain ripples, and the absence of runtime error UI in the in-app browser.
+
 ## 0.9.0 - 2026-09-07
 
 - Replaced all eight programmatic whitebox environments with authored high-detail 16:9 pixel-art scene paintings derived from the approved concept direction.

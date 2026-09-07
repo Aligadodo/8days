@@ -11,7 +11,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
-      <div class="release-chip"><i></i> ART REBUILD 0.9</div>
+      <div class="release-chip"><i></i> MOTION PASS 0.9.1</div>
     </header>
     <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
       <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
