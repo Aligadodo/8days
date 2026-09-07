@@ -17,7 +17,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
-      <div class="release-chip"><i></i> LIVING WORLD 0.11.0</div>
+      <div class="release-chip"><i></i> LIVING WORLD 0.12.0</div>
     </header>
     <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
       <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
@@ -123,11 +123,13 @@ const updateView = (view: CampaignView) => {
     `主线 ${view.solved.length} / ${view.level.puzzles.length}`;
   byId("objectiveValue").textContent = view.objective;
   const current = view.currentPuzzle;
-  byId("guideReason").textContent = current
-    ? `寻找“${current.title}”。鼠标悬停时物件会描边，点击后自动靠近。需要找路时可以在小地图定位。`
-    : "四段记忆已经齐全。前往终点，现场可以展开记忆卡核对符号。";
+  byId("guideReason").textContent =
+    view.accessHint ??
+    (current
+      ? `寻找“${current.title}”。鼠标悬停时物件会描边，点击后自动靠近。需要找路时可以在小地图定位。`
+      : "四段记忆已经齐全。前往终点，现场可以展开记忆卡核对符号。");
   renderFieldHint();
-  const signature = `${view.level.id}:${view.solved.join(",")}:${view.sideTasks.join(",")}:${view.completed}`;
+  const signature = `${view.level.id}:${view.solved.join(",")}:${view.sideTasks.join(",")}:${view.worldFlags.join(",")}:${view.completed}`;
   if (signature !== contentSignature) {
     contentSignature = signature;
     renderInventory(view);
@@ -203,14 +205,21 @@ function renderCampaign() {
 
 function renderInventory(view: CampaignView) {
   const found = view.level.puzzles.filter((q) => view.solved.includes(q.id));
-  byId("inventoryGrid").innerHTML = found.length
-    ? found
-        .map(
-          (q) =>
-            `<div class="inventory-item"><span>${q.icon}</span><b>${q.rewardItem}</b><small>${q.symbol}＝${q.rewardDigit} · 终点记忆</small></div>`,
-        )
-        .join("")
-    : `<div class="empty-state"><span>◇</span><p>背包还是空的。<br>调查真实物件，收集今天的线索。</p></div>`;
+  byId("inventoryGrid").innerHTML =
+    found.length || view.worldItems.length
+      ? found
+          .map(
+            (q) =>
+              `<div class="inventory-item"><span>${q.icon}</span><b>${q.rewardItem}</b><small>${q.symbol}＝${q.rewardDigit} · 终点记忆</small></div>`,
+          )
+          .join("") +
+        view.worldItems
+          .map(
+            (item) =>
+              `<div class="inventory-item"><span>◇</span><b>${item}</b><small>${item.includes("小锤") ? "靠近裂墙后点击使用 · 不消耗" : "探索收藏 · 已记入生活日志"}</small></div>`,
+          )
+          .join("")
+      : `<div class="empty-state"><span>◇</span><p>背包还是空的。<br>调查真实物件，收集今天的线索。</p></div>`;
   byId("quickbar").innerHTML = [0, 1, 2, 3, 4]
     .map((index) => {
       const q = found[index];
@@ -243,12 +252,19 @@ function renderJournal(view: CampaignView) {
       return `<div class="clue-row ${solved ? "solved" : current ? "current" : "locked"}"><i>${solved ? puzzle.symbol : index + 1}</i><div><b>${puzzle.title}</b><small>${solved ? `${puzzle.symbol}＝${puzzle.rewardDigit} · ${puzzle.rewardItem}` : current ? puzzle.prompt : "先完成上一条推理"}</small></div><span>${solved ? "✓" : current ? "→" : "·"}</span></div>`;
     })
     .join("");
-  byId("sideList").innerHTML = view.level.sideTasks
-    .map(
-      (side) =>
-        `<div class="side-row ${view.sideTasks.includes(side.id) ? "done" : ""}"><i>${side.icon}</i><span><b>${side.title}</b><small>${view.sideTasks.includes(side.id) ? side.completeText : side.prompt}</small></span></div>`,
-    )
-    .join("");
+  byId("sideList").innerHTML =
+    view.level.sideTasks
+      .map(
+        (side) =>
+          `<div class="side-row ${view.sideTasks.includes(side.id) ? "done" : ""}"><i>${side.icon}</i><span><b>${side.title}</b><small>${view.sideTasks.includes(side.id) ? side.completeText : side.prompt}</small></span></div>`,
+      )
+      .join("") +
+    view.worldItems
+      .map(
+        (item) =>
+          `<div class="side-row done"><i>◇</i><span><b>${item}</b><small>${item.includes("手记") ? "探索发现：今天没有挖到金子，但陪孩子看了夕阳。" : "探索工具已找到，裂墙可使用。"}</small></span></div>`,
+      )
+      .join("");
   const save = game.getSave();
   byId("stampList").innerHTML = LEVELS.map(
     (level) =>
@@ -261,6 +277,12 @@ function renderFieldHint() {
   const puzzle = currentView.currentPuzzle;
   const button = byId<HTMLButtonElement>("fieldHintButton");
   const hintText = byId("fieldHint");
+  if (currentView.accessHint) {
+    button.hidden = true;
+    hintText.hidden = false;
+    hintText.textContent = currentView.accessHint;
+    return;
+  }
   if (!puzzle) {
     button.hidden = true;
     hintText.hidden = false;

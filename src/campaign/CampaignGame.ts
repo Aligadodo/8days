@@ -1,6 +1,8 @@
 import { LEVELS, getLevel } from "./levels";
-import { Navigation, WORLD, clamp, distance, inHazard, p } from "./navigation";
-import { WORLDS } from "./worldDesign";
+import { WORLD, clamp, contains, distance, inHazard, p } from "./navigation";
+import { WORLDS, LAYOUT_REVISION } from "./worldDesign";
+import { buildWorldNavigation, mechanismOpen } from "./worldGeometry";
+import { drawSurface, drawMechanism } from "./mechanismRendering";
 import { SpriteAtlas } from "./SpriteAtlas";
 import { entitiesFor, type Entity } from "./entities";
 import {
@@ -45,7 +47,7 @@ export class CampaignGame {
   private readonly observer: ResizeObserver;
   private readonly minimap: HTMLCanvasElement;
   private readonly miniContext: CanvasRenderingContext2D;
-  private nav = new Navigation(WORLDS[0].regions, WORLDS[0].blockers);
+  private nav = buildWorldNavigation(WORLDS[0], new Set());
   private levelIndex = 0;
   private level = LEVELS[0];
   private entities: Entity[] = entitiesFor(this.level);
@@ -60,6 +62,7 @@ export class CampaignGame {
   private pointer: Point | null = null;
   private pending: Entity | null = null;
   private actionTime = 0;
+  private actionDuration = 0.4;
   private destination: Point | null = null;
   private destinationAge = 0;
   private waiting = false;
@@ -69,6 +72,7 @@ export class CampaignGame {
   private stepAt = 0;
   private footsteps: Footprint[] = [];
   private solved = new Set<string>();
+  private worldFlags = new Set<string>();
   private sideTasks = new Set<string>();
   private doneAt = new Map<string, number>();
   private explored = new Set<number>();
@@ -134,18 +138,30 @@ export class CampaignGame {
   }
   getView(): CampaignView {
     const currentPuzzle = this.currentPuzzle();
+    const access = this.accessMechanism(currentPuzzle?.id);
     return {
       levelIndex: this.levelIndex,
       level: this.level,
       solved: [...this.solved],
       sideTasks: [...this.sideTasks],
+      worldFlags: [...this.worldFlags],
+      worldItems: WORLDS[this.levelIndex].mechanisms
+        .filter((m) => m.reward && this.worldFlags.has(m.id))
+        .map((m) => m.reward!),
+      accessHint: access
+        ? (access.requires ?? []).every((id) => this.flags().has(id))
+          ? `机关已通电。找到${access.name}，点击操作后，档案柜会移开露出通路。`
+          : access.hint
+        : undefined,
       inventory: this.level.puzzles
         .filter((q) => this.solved.has(q.id))
         .map((q) => q.rewardItem),
       currentPuzzle,
-      objective: currentPuzzle
-        ? `调查 · ${currentPuzzle.title}`
-        : "前往终点，重组今天的四段记忆",
+      objective: access
+        ? `操作 · ${access.name}`
+        : currentPuzzle
+          ? `调查 · ${currentPuzzle.title}`
+          : "前往终点，重组今天的四段记忆",
       completed: this.completed,
       deaths: this.deathCount,
       hintsUsed: this.hintCount,
@@ -160,12 +176,20 @@ export class CampaignGame {
     this.entities = entitiesFor(this.level);
     const saved = resetRun ? undefined : this.save.levels[this.level.id];
     this.solved = new Set(saved?.solved ?? []);
+    this.worldFlags = new Set(
+      (saved?.worldFlags ?? []).filter((id) =>
+        world.mechanisms.some((m) => m.id === id && m.kind !== "gate"),
+      ),
+    );
+    // Older saves already beyond the new cabinet puzzle keep their progression.
+    if (
+      this.levelIndex === 1 &&
+      ["alarm", "stair-map", "door-code"].some((id) => this.solved.has(id))
+    )
+      this.worldFlags.add("office-latch");
     this.sideTasks = new Set(saved?.sideTasks ?? []);
     this.hintStages = { ...saved?.hintStages };
-    this.nav = new Navigation(
-      world.regions.filter((r) => !r.requires || this.solved.has(r.requires)),
-      world.blockers,
-    );
+    this.rebuildNavigation();
     this.hintCount = saved?.hintsUsed ?? 0;
     this.deathCount = saved?.deaths ?? 0;
     this.explored = new Set(
@@ -174,10 +198,18 @@ export class CampaignGame {
       ),
     );
     this.discovered.clear();
+    const reachable = (q: Point) =>
+      this.nav.isWalkable(q) &&
+      this.nav.route(world.spawn, q, () => false, 0).length > 0;
+    const remembered = [...this.level.puzzles]
+      .reverse()
+      .find((q) => this.solved.has(q.id) && reachable(world.approaches[q.id]));
     this.checkpoint =
-      saved?.checkpoint && this.nav.isWalkable(saved.checkpoint)
+      saved?.layoutRevision === LAYOUT_REVISION &&
+      saved.checkpoint &&
+      reachable(saved.checkpoint)
         ? { ...saved.checkpoint }
-        : { ...this.level.playerStart };
+        : { ...(remembered ? world.approaches[remembered.id] : world.spawn) };
     this.player = { ...this.checkpoint };
     this.elapsedSeconds = 0;
     this.graceUntil = 5;
@@ -199,7 +231,9 @@ export class CampaignGame {
     this.persist();
     this.emitView();
     this.hooks.onToast(
-      `DAY ${this.level.day} · ${this.level.name}。鼠标停在物件上时，会显示细光边。`,
+      saved && saved.layoutRevision !== LAYOUT_REVISION
+        ? "地图已重新标定。线索与成就已保留，回到最近的安全操作点。"
+        : `DAY ${this.level.day} · ${this.level.name}。鼠标停在物件上时，会显示细光边。`,
     );
     this.hooks.onAudio({ id: "music.spring.intro" });
   }
@@ -220,15 +254,20 @@ export class CampaignGame {
   solvePuzzle(id: string) {
     if (this.dead) return;
     const puzzle = this.level.puzzles.find((q) => q.id === id);
-    if (!puzzle || this.solved.has(id) || !this.available(puzzle)) return;
+    if (
+      !puzzle ||
+      this.solved.has(id) ||
+      !this.available(puzzle) ||
+      this.accessMechanism(id)
+    )
+      return;
     this.solved.add(id);
     this.doneAt.set(id, this.elapsedSeconds);
     this.checkpoint = { ...this.player };
-    const world = WORLDS[this.levelIndex];
-    this.nav = new Navigation(
-      world.regions.filter((r) => !r.requires || this.solved.has(r.requires)),
-      world.blockers,
-    );
+    this.rebuildNavigation();
+    WORLDS[this.levelIndex].mechanisms
+      .filter((m) => m.controlledBy === id)
+      .forEach((m) => this.doneAt.set(m.id, this.elapsedSeconds));
     this.persist();
     this.emitView();
     this.hooks.onToast(`${puzzle.solvedText} · 已记住此处位置`, "success");
@@ -319,6 +358,7 @@ export class CampaignGame {
     };
     this.cancel();
     this.solved.clear();
+    this.worldFlags.clear();
     this.sideTasks.clear();
     this.explored.clear();
     this.hintStages = {};
@@ -331,6 +371,26 @@ export class CampaignGame {
   }
   private available(puzzle: PuzzleSpec) {
     return (puzzle.requires ?? []).every((id) => this.solved.has(id));
+  }
+  private flags() {
+    return new Set([...this.solved, ...this.worldFlags]);
+  }
+  private rebuildNavigation() {
+    this.nav = buildWorldNavigation(WORLDS[this.levelIndex], this.flags());
+    this.cancel();
+  }
+  private accessMechanism(puzzleId?: string) {
+    const world = WORLDS[this.levelIndex];
+    const id = (world.puzzleAccess[puzzleId ?? ""] ?? []).find(
+      (id) => !this.worldFlags.has(id),
+    );
+    return world.mechanisms.find((m) => m.id === id);
+  }
+  private visibleEntity(entity: Entity) {
+    return (
+      entity.mechanism?.kind !== "cache" ||
+      (entity.mechanism.requires ?? []).every((id) => this.flags().has(id))
+    );
   }
   private currentPuzzle() {
     return (
@@ -401,7 +461,11 @@ export class CampaignGame {
         if (this.paused || this.dead) return;
         this.pointer = p(event.clientX, event.clientY);
         this.hovered = this.hit(this.worldPoint(event));
-        this.canvas.style.cursor = this.hovered ? "pointer" : "default";
+        this.canvas.style.cursor = this.hovered
+          ? "pointer"
+          : this.nav.isWalkable(this.worldPoint(event))
+            ? "default"
+            : "not-allowed";
         if (
           this.dragging &&
           !this.focus &&
@@ -462,7 +526,10 @@ export class CampaignGame {
         }
         if (key === "e" && !event.repeat) {
           const entity = this.entities
-            .filter((q) => distance(this.entityPosition(q), this.player) < 95)
+            .filter(
+              (q) =>
+                this.visibleEntity(q) && distance(q.approach, this.player) < 95,
+            )
             .sort(
               (a, b) =>
                 distance(this.entityPosition(a), this.player) -
@@ -519,7 +586,7 @@ export class CampaignGame {
           return;
         }
         const target = this.entities
-          .filter((e) => this.discovered.has(e.id))
+          .filter((e) => this.visibleEntity(e) && this.discovered.has(e.id))
           .find((e) => distance(this.entityPosition(e), q) < 65);
         this.navigate(
           target ? this.entityPosition(target) : q,
@@ -542,9 +609,21 @@ export class CampaignGame {
   private hit(q: Point) {
     return (
       [...this.entities]
+        .filter(
+          (e) =>
+            this.visibleEntity(e) &&
+            !(e.mechanism?.kind === "gate" && this.done(e)),
+        )
         .sort((a, b) => this.entityPosition(b).y - this.entityPosition(a).y)
         .find((entity) => {
           const pos = this.entityPosition(entity);
+          if (entity.baked) return contains(q, entity.baked);
+          if (entity.mechanism)
+            return (
+              Math.abs(q.x - pos.x) <= entity.mechanism.width / 2 + 3 &&
+              q.y >= pos.y - entity.height &&
+              q.y <= pos.y + 5
+            );
           return this.atlas.hit(
             entity.atlas,
             this.entityFrame(entity),
@@ -556,6 +635,7 @@ export class CampaignGame {
     );
   }
   private done(entity: Entity) {
+    if (entity.mechanism) return mechanismOpen(entity.mechanism, this.flags());
     return entity.type === "puzzle"
       ? this.solved.has(entity.id)
       : entity.type === "side"
@@ -592,10 +672,15 @@ export class CampaignGame {
     return position;
   }
   private navigate(q: Point, entity: Entity | null, sound: boolean) {
-    this.pending = null;
-    this.waiting = false;
-    const wanted = entity ? p(q.x, q.y + 23) : q;
-    const endpoint = this.nav.nearest(wanted, entity ? 110 : 85);
+    const dragging = this.dragging;
+    this.cancel();
+    this.dragging = dragging;
+    const wanted = entity ? entity.approach : q;
+    const endpoint = entity
+      ? this.nav.isWalkable(wanted)
+        ? wanted
+        : null
+      : this.nav.nearest(wanted, 14);
     // A temporary hazard is not a wall. Keep the intended landing point and wait
     // at its edge if no safe detour exists, rather than silently changing the goal.
     let path = endpoint
@@ -607,7 +692,16 @@ export class CampaignGame {
       if (sound && this.elapsedSeconds - this.lastBlockedAt > 2) {
         this.lastBlockedAt = this.elapsedSeconds;
         this.hooks.onToast(
-          "这里没有可通行的落脚点。沿地面、桥面或台阶试一试。",
+          entity?.mechanism?.hint ??
+            this.accessMechanism(entity?.id)?.hint ??
+            (() => {
+              const obstacle = WORLDS[this.levelIndex].obstacles.find((o) =>
+                contains(q, o.polygon),
+              );
+              return obstacle
+                ? `这里是${obstacle.name}，不能穿过。请沿旁边的地面绕行。`
+                : "这里没有相连的落脚点。只能走桥面、地面和台阶；门要先打开。";
+            })(),
         );
         this.hooks.onAudio({ id: "nav.route.blocked" });
       }
@@ -636,13 +730,80 @@ export class CampaignGame {
     return this.hazards.phase(h);
   }
   private arrive(entity: Entity) {
-    if (distance(this.entityPosition(entity), this.player) > 115) return;
+    if (
+      !this.visibleEntity(entity) ||
+      distance(entity.approach, this.player) > 10
+    )
+      return;
+    const mechanism = entity.mechanism;
+    if (
+      mechanism &&
+      (mechanism.kind === "gate" ||
+        this.done(entity) ||
+        !(mechanism.requires ?? []).every((id) => this.flags().has(id)))
+    ) {
+      this.hooks.onToast(
+        this.done(entity) ? mechanism.complete : mechanism.hint,
+      );
+      this.hooks.onAudio({ id: "interaction.blocked" });
+      return;
+    }
     this.pending = entity;
-    this.actionTime = 0.4;
+    this.actionDuration =
+      mechanism?.kind === "breakable"
+        ? 1.05
+        : mechanism?.kind === "lever"
+          ? 1.15
+          : mechanism?.kind === "cache"
+            ? 0.55
+            : 0.4;
+    this.actionTime = this.actionDuration;
+    if (mechanism?.kind === "lever")
+      this.hooks.onAudio({
+        id: "mechanism.slide",
+        caption: "咔嗒，柜脚沿轨道缓缓移开",
+      });
     this.speed = 0;
     this.face(entity.x - this.player.x, entity.y - this.player.y);
   }
   private interact(entity: Entity) {
+    if (entity.mechanism) {
+      const m = entity.mechanism;
+      if (
+        m.kind === "gate" ||
+        this.done(entity) ||
+        !(m.requires ?? []).every((id) => this.flags().has(id))
+      )
+        return;
+      this.worldFlags.add(m.id);
+      this.doneAt.set(m.id, this.elapsedSeconds);
+      WORLDS[this.levelIndex].mechanisms
+        .filter((g) => g.controlledBy === m.id)
+        .forEach((g) => this.doneAt.set(g.id, this.elapsedSeconds));
+      this.checkpoint = { ...this.player };
+      this.rebuildNavigation();
+      this.reveal();
+      this.persist();
+      this.emitView();
+      this.hooks.onToast(m.complete, "success");
+      this.hooks.onAudio({
+        id:
+          m.kind === "breakable"
+            ? "mechanism.crumble"
+            : m.kind === "tool"
+              ? "item.pickup.tool"
+              : m.kind === "cache"
+                ? "item.pickup.clue"
+                : "mechanism.latch",
+        caption:
+          m.kind === "breakable"
+            ? "碎石落到两边，壁龛通了"
+            : m.kind === "cache"
+              ? "翻开一页旧手记"
+              : undefined,
+      });
+      return;
+    }
     if (entity.type === "exit") {
       if (this.solved.size < 4) {
         this.hooks.onToast(
@@ -667,6 +828,11 @@ export class CampaignGame {
           .filter((id) => !this.solved.has(id))
           .map((id) => this.level.puzzles.find((q) => q.id === id)!.title);
         this.hooks.onToast(`需要先调查：${names.join("、")}。`);
+        return;
+      }
+      const access = this.accessMechanism(puzzle.id);
+      if (access) {
+        this.hooks.onToast(access.hint);
         return;
       }
       this.setPaused(true);
@@ -724,7 +890,18 @@ export class CampaignGame {
       return f.life > 0;
     });
     if (this.pending) {
+      const beforeProgress = 1 - this.actionTime / this.actionDuration;
       this.actionTime -= delta;
+      if (this.pending.mechanism?.kind === "breakable")
+        for (const beat of [0.27, 0.66])
+          if (
+            beforeProgress < beat &&
+            1 - this.actionTime / this.actionDuration >= beat
+          )
+            this.hooks.onAudio({
+              id: "mechanism.strike",
+              caption: "笃，薄墙的裂纹扩开了",
+            });
       if (this.actionTime <= 0) {
         const target = this.pending;
         this.pending = null;
@@ -787,6 +964,11 @@ export class CampaignGame {
         this.player.x + ((next.x - this.player.x) * step) / length,
         this.player.y + ((next.y - this.player.y) * step) / length,
       );
+      // Static collision is authoritative even for stale paths or a changing world.
+      if (!this.nav.visible(this.player, candidate)) {
+        this.cancel();
+        break;
+      }
       if (this.blocked(candidate)) {
         this.waiting = Boolean(this.destination);
         this.routeRetry = 0.6;
@@ -977,7 +1159,7 @@ export class CampaignGame {
         if (distance(this.player, p((x + 0.5) * FOG, (y + 0.5) * FOG)) < VISION)
           this.explored.add(y * FOG_COLS + x);
     this.entities.forEach((e) => {
-      if (this.seen(e)) this.discovered.add(e.id);
+      if (this.visibleEntity(e) && this.seen(e)) this.discovered.add(e.id);
     });
   }
   private draw() {
@@ -1012,11 +1194,28 @@ export class CampaignGame {
       ctx.restore();
     });
     const actors = [
-      ...this.entities.map((entity) => ({
-        y: this.entityPosition(entity).y,
-        draw: () => this.drawEntity(entity),
-      })),
+      ...this.entities
+        .filter((e) => this.visibleEntity(e))
+        .map((entity) => ({
+          y: this.entityPosition(entity).y,
+          draw: () => this.drawEntity(entity),
+        })),
       { y: this.player.y, draw: () => this.drawPlayer() },
+      ...WORLDS[this.levelIndex].occluders.map((o) => ({
+        y: o.depth,
+        draw: () => {
+          if (!map?.complete || !map.naturalWidth) return;
+          ctx.save();
+          ctx.beginPath();
+          o.polygon.forEach((p, i) =>
+            i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y),
+          );
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(map, 0, 0, 1600, 900);
+          ctx.restore();
+        },
+      })),
       ...this.level.hazards.map((h) => ({
         y: hazardCenter(h).y,
         draw: () =>
@@ -1068,6 +1267,15 @@ export class CampaignGame {
         viewport: { width: this.width, height: this.height },
         hover: this.hovered?.id,
         explored: this.explored.size,
+        worldFlags: [...this.worldFlags],
+        solved: [...this.solved],
+        walkable: this.nav.isWalkable(this.player),
+        action: this.pending
+          ? {
+              id: this.pending.id,
+              progress: 1 - this.actionTime / this.actionDuration,
+            }
+          : null,
         paused: this.paused,
         death: this.deathScene
           ? { stage: deathStage(this.deathScene.age), age: this.deathScene.age }
@@ -1123,10 +1331,22 @@ export class CampaignGame {
       ctx.beginPath();
       ctx.moveTo(this.player.x - 12, this.player.y - 88);
       ctx.lineTo(
-        this.player.x - 12 + 24 * (1 - this.actionTime / 0.4),
+        this.player.x - 12 + 24 * (1 - this.actionTime / this.actionDuration),
         this.player.y - 88,
       );
       ctx.stroke();
+      if (this.pending.mechanism?.kind === "breakable") {
+        const progress = 1 - this.actionTime / this.actionDuration,
+          direction = this.facing === "left" ? -1 : 1;
+        ctx.save();
+        ctx.translate(this.player.x + direction * 20, this.player.y - 39);
+        ctx.rotate(direction * (-0.8 + Math.sin(progress * Math.PI * 6) * 0.8));
+        ctx.fillStyle = "#9e734b";
+        ctx.fillRect(-2, -23, 4, 25);
+        ctx.fillStyle = "#b3c3c5";
+        ctx.fillRect(-9, -26, 18, 8);
+        ctx.restore();
+      }
     }
   }
   private drawFallenPlayer() {
@@ -1166,30 +1386,50 @@ export class CampaignGame {
     ctx.restore();
   }
   private drawCrossing() {
-    if (this.levelIndex !== 3 || !this.solved.has("lily-path")) return;
-    const points = [p(775, 570), p(850, 600), p(910, 665), p(1000, 718)];
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i],
-        b = points[i + 1],
-        count = Math.ceil(distance(a, b) / 27);
-      for (let j = 0; j < count; j++)
-        this.atlas.draw(
-          this.ctx,
-          "world-props",
-          9,
-          a.x + ((b.x - a.x) * j) / count,
-          a.y + ((b.y - a.y) * j) / count,
-          17,
-          false,
-          false,
-          37,
-        );
-    }
+    const flags = this.flags();
+    for (const surface of WORLDS[this.levelIndex].surfaces)
+      if (!surface.requires || flags.has(surface.requires))
+        drawSurface(this.ctx, surface);
   }
   private drawEntity(entity: Entity) {
     const ctx = this.ctx,
       pos = this.entityPosition(entity),
       done = this.done(entity);
+    const hover = !this.paused && this.hovered?.id === entity.id;
+    if (entity.mechanism) {
+      const controlling =
+        this.pending?.id === entity.id ||
+        this.pending?.id === entity.mechanism.controlledBy;
+      drawMechanism(
+        ctx,
+        entity.mechanism,
+        done,
+        controlling ? 1 - this.actionTime / this.actionDuration : 0,
+        hover,
+        this.elapsedSeconds - (this.doneAt.get(entity.id) ?? -99),
+        (entity.mechanism.requires ?? []).every((id) => this.flags().has(id)),
+      );
+      return;
+    }
+    if (entity.baked) {
+      ctx.save();
+      ctx.beginPath();
+      entity.baked.forEach((p, i) =>
+        i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y),
+      );
+      ctx.closePath();
+      if (entity.id === "turn-off-screen" && done) {
+        ctx.fillStyle = "#172b35df";
+        ctx.fill();
+      }
+      if (hover) {
+        ctx.strokeStyle = "#fff1b4";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
     let y = pos.y;
     if ((entity.id === "bee" || entity.id === "bat") && !this.reducedMotion)
       y += Math.sin(this.elapsedSeconds * 5) * 2;
@@ -1279,6 +1519,15 @@ export class CampaignGame {
     if (map?.complete && map.naturalWidth) ctx.drawImage(map, 0, 0, w, h);
     const sx = w / 1600,
       sy = h / 900;
+    ctx.save();
+    ctx.scale(sx, sy);
+    for (const surface of WORLDS[this.levelIndex].surfaces)
+      if (!surface.requires || this.flags().has(surface.requires))
+        drawSurface(ctx, surface);
+    for (const entity of this.entities)
+      if (entity.mechanism && this.visibleEntity(entity))
+        drawMechanism(ctx, entity.mechanism, this.done(entity), 0, false, 99);
+    ctx.restore();
     for (let y = 0; y < FOG_ROWS; y++)
       for (let x = 0; x < FOG_COLS; x++) {
         const q = p((x + 0.5) * FOG, (y + 0.5) * FOG);
@@ -1295,7 +1544,8 @@ export class CampaignGame {
         );
       }
     this.entities.forEach((entity) => {
-      if (!this.discovered.has(entity.id)) return;
+      if (!this.visibleEntity(entity) || !this.discovered.has(entity.id))
+        return;
       const pos = this.entityPosition(entity);
       ctx.fillStyle = this.done(entity)
         ? "#a2d3b1"
@@ -1324,7 +1574,10 @@ export class CampaignGame {
       ctx.fill();
     });
     if (this.markedUntil > this.elapsedSeconds) {
-      const target = this.currentPuzzle()?.position ?? this.level.exit;
+      const target =
+        this.accessMechanism(this.currentPuzzle()?.id)?.position ??
+        this.currentPuzzle()?.position ??
+        this.level.exit;
       ctx.strokeStyle = "#ffe2a0";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -1380,6 +1633,8 @@ export class CampaignGame {
       explored: [...this.explored],
       checkpoint: { ...this.checkpoint },
       hintStages: { ...this.hintStages },
+      layoutRevision: LAYOUT_REVISION,
+      worldFlags: [...this.worldFlags],
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));

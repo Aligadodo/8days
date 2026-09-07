@@ -1,8 +1,59 @@
 import type { Point, Rect } from "./types";
 
 export const WORLD = { width: 1600, height: 900 };
-export const CELL = 16;
+export const CELL = 8;
 export type Polygon = Point[];
+const FOOTPRINT = [
+  [0, 0],
+  [9, 0],
+  [-9, 0],
+  [0, 6],
+  [0, -6],
+  [6.4, 4.3],
+  [-6.4, 4.3],
+  [6.4, -4.3],
+  [-6.4, -4.3],
+];
+// Find boundary crossings, so a short clipped corner cannot hide between samples.
+function crossings(a: Point, b: Point, shape: Polygon) {
+  const result: number[] = [];
+  for (let i = 0; i < shape.length; i++) {
+    const c = shape[i],
+      d = shape[(i + 1) % shape.length],
+      rx = b.x - a.x,
+      ry = b.y - a.y,
+      sx = d.x - c.x,
+      sy = d.y - c.y,
+      den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-9) continue;
+    const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den,
+      u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) result.push(t);
+  }
+  return result;
+}
+const shapeBounds = new WeakMap<
+  Polygon,
+  { left: number; right: number; top: number; bottom: number }
+>();
+function overlapsSegment(a: Point, b: Point, shape: Polygon) {
+  let bounds = shapeBounds.get(shape);
+  if (!bounds) {
+    bounds = {
+      left: Math.min(...shape.map((p) => p.x)),
+      right: Math.max(...shape.map((p) => p.x)),
+      top: Math.min(...shape.map((p) => p.y)),
+      bottom: Math.max(...shape.map((p) => p.y)),
+    };
+    shapeBounds.set(shape, bounds);
+  }
+  return (
+    Math.max(a.x, b.x) >= bounds.left &&
+    Math.min(a.x, b.x) <= bounds.right &&
+    Math.max(a.y, b.y) >= bounds.top &&
+    Math.min(a.y, b.y) <= bounds.bottom
+  );
+}
 export interface WalkRegion {
   name: string;
   polygon: Polygon;
@@ -85,6 +136,7 @@ export function corridor(
 }
 
 export class Navigation {
+  private readonly visibilityCache = new Map<string, boolean>();
   readonly columns = Math.ceil(WORLD.width / CELL);
   readonly rows = Math.ceil(WORLD.height / CELL);
   readonly cells: Uint8Array;
@@ -109,13 +161,7 @@ export class Navigation {
   }
   isWalkable(point: Point) {
     // Feet clearance, not sprite width. Tall sprites can overlap walls without walking through them.
-    return [
-      [0, 0],
-      [5, 0],
-      [-5, 0],
-      [0, 5],
-      [0, -5],
-    ].every(([dx, dy]) => {
+    return FOOTPRINT.every(([dx, dy]) => {
       const q = p(point.x + dx, point.y + dy);
       return (
         q.x >= 6 &&
@@ -135,13 +181,55 @@ export class Navigation {
     b: Point,
     blocked: (point: Point) => boolean = () => false,
   ) {
+    const gridPoint = (q: Point) =>
+      q.x % CELL === CELL / 2 && q.y % CELL === CELL / 2;
+    const key =
+      gridPoint(a) && gridPoint(b)
+        ? [this.index(a), this.index(b)].sort((x, y) => x - y).join(":")
+        : null;
+    let clear = key ? this.visibilityCache.get(key) : undefined;
+    if (clear === undefined) {
+      clear = this.staticVisible(a, b);
+      if (key) this.visibilityCache.set(key, clear);
+    }
+    if (!clear) return false;
     const steps = Math.max(1, Math.ceil(distance(a, b) / 5));
     for (let i = 0; i <= steps; i++) {
       const q = p(
         a.x + ((b.x - a.x) * i) / steps,
         a.y + ((b.y - a.y) * i) / steps,
       );
-      if (!this.isWalkable(q) || blocked(q)) return false;
+      if (blocked(q)) return false;
+    }
+    return true;
+  }
+  private staticVisible(a: Point, b: Point) {
+    if (!this.isWalkable(a) || !this.isWalkable(b)) return false;
+    for (const [dx, dy] of FOOTPRINT) {
+      const from = p(a.x + dx, a.y + dy),
+        to = p(b.x + dx, b.y + dy);
+      if (
+        this.blockers.some(
+          (shape) =>
+            overlapsSegment(from, to, shape) &&
+            crossings(from, to, shape).length > 0,
+        )
+      )
+        return false;
+      const floors = this.regions.filter((r) =>
+        overlapsSegment(from, to, r.polygon),
+      );
+      const cuts = [
+        0,
+        1,
+        ...floors.flatMap((r) => crossings(from, to, r.polygon)),
+      ].sort((a, b) => a - b);
+      for (let i = 1; i < cuts.length; i++) {
+        if (cuts[i] - cuts[i - 1] < 1e-8) continue;
+        const t = (cuts[i] + cuts[i - 1]) / 2,
+          q = p(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+        if (!floors.some((r) => contains(q, r.polygon))) return false;
+      }
     }
     return true;
   }
@@ -238,7 +326,7 @@ export class Navigation {
         for (let i = to; i !== -1; i = parent[i]) raw.unshift(this.center(i));
         raw.unshift({ ...start });
         const smooth: Point[] = [];
-        for (let i = 0; i < raw.length - 1; ) {
+        for (let i = 0; i < raw.length - 1;) {
           let j = raw.length - 1;
           while (j > i + 1 && !this.visible(raw[i], raw[j], blocked)) j--;
           smooth.push(raw[j]);

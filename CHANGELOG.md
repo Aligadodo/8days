@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.0 - 2026-09-08
+
+- Recalibrated eight floor plans with named furniture, wall, cliff, roof, tree and vehicle obstacles; all 56 original targets now have authored interaction stances.
+- Added continuous static segment collision and per-step movement checks, 8-pixel navigation resolution, cached static visibility, and limited ground-click snapping. Stale routes cannot pass through solid objects.
+- Added a powered lever and sliding archive-cabinet secret door in the office, plus a reusable hammer, breakable thin wall and optional keepsake alcove in the cave.
+- Tied conditional passages, visible gates, stone crossings and minimap changes to shared world state; hidden keepsakes do not leak before discovery.
+- Added staged world actions, impact/slide/latch sounds, cancellable actions and persistent exploration rewards inside the existing backpack/journal.
+- Preserved v2 progress with layout-revision checkpoint migration and grandfathered office access for advanced saves.
+- Added a read-only map calibration page and seven regression tests (40 total), including all side-task approaches and independent blocked-space probes.
+
+
 ## 0.11.0 - 2026-09-07
 
 - Replaced global modulo hazard timing and instant death dialogs with scene-local warning, release, contact, aftermath and recovery states across 16 hazards.

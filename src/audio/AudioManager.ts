@@ -1,6 +1,10 @@
 export type AudioBus = "music" | "effects" | "ambience";
 
 export type AudioEventId =
+  | "mechanism.strike"
+  | "mechanism.crumble"
+  | "mechanism.slide"
+  | "mechanism.latch"
   | "hazard.sign.creak"
   | "hazard.object.release"
   | "hazard.impact.wood"
@@ -183,6 +187,25 @@ export class AudioManager {
     this.lastPlayed.set(cue.id, now);
 
     switch (cue.id) {
+      case "mechanism.strike":
+        this.noise(0.07, 0.045, 2100, pan);
+        this.tone(280, 0.08, 0.035, "triangle", 0, pan);
+        break;
+      case "mechanism.crumble":
+        this.noise(0.4, 0.055, 860, pan);
+        [0, 0.1, 0.2].forEach((delay, i) =>
+          this.tone(130 + i * 65, 0.09, 0.02, "triangle", delay, pan),
+        );
+        break;
+      case "mechanism.slide":
+        this.tone(180, 0.06, 0.03, "square", 0, pan);
+        this.noise(0.85, 0.035, 480, pan);
+        this.sweep(130, 72, 0.8, 0.022, pan, "sawtooth");
+        break;
+      case "mechanism.latch":
+        this.tone(260, 0.06, 0.03, "square", 0, pan);
+        this.tone(390, 0.1, 0.022, "triangle", 0.08, pan);
+        break;
       case "hazard.sign.creak":
         this.sweep(180, 78, 0.46, 0.045, pan, "sawtooth");
         this.tone(136, 0.24, 0.04, "sawtooth", 0.48, pan);

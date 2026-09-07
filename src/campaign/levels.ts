@@ -119,7 +119,7 @@ export const LEVELS: LevelDefinition[] = [
         evidence: ["打印机 2A、走廊灯 1A、茶水间 9A、电梯待机 2A。", "告示：夜间任何支路超过 6A 都应断开检查。"],
         instruction: "选择异常支路。",
         options: ["A 打印机", "B 走廊灯", "C 茶水间", "D 电梯"], solution: ["C 茶水间"],
-        rewardDigit: "1", rewardItem: "绝缘配电钥匙", solvedText: "温度开始下降，分闸标签后露出“电＝1”。", wrongFeedback: "这个支路的夜间电流没有超过警戒线。",
+        rewardDigit: "1", rewardItem: "绝缘配电钥匙", solvedText: "异常支路已隔离，维修控制线路恢复。拉柄指示灯亮起，标签后露出“电＝1”。", wrongFeedback: "这个支路的夜间电流没有超过警戒线。",
         hints: ["比较每个支路与 6A。", "只有一个读数大于 6A。", "断开 C 茶水间。"],
       },
       {

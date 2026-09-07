@@ -115,6 +115,8 @@ export interface LevelDefinition {
 }
 
 export interface PersistedLevelState {
+  layoutRevision?: number;
+  worldFlags?: string[];
   solved: string[];
   sideTasks: string[];
   hintsUsed: number;
@@ -133,6 +135,9 @@ export interface CampaignSave {
 }
 
 export interface CampaignView {
+  worldFlags: string[];
+  worldItems: string[];
+  accessHint?: string;
   levelIndex: number;
   level: LevelDefinition;
   solved: string[];

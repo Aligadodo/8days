@@ -1,9 +1,14 @@
 import type { AtlasName } from "./SpriteAtlas";
 import type { LevelDefinition, Point } from "./types";
+import { WORLDS, type WorldMechanism } from "./worldDesign";
+import type { Polygon } from "./navigation";
 
 export interface Entity extends Point {
   id: string;
-  type: "puzzle" | "side" | "exit";
+  type: "puzzle" | "side" | "exit" | "mechanism";
+  approach: Point;
+  baked?: Polygon;
+  mechanism?: WorldMechanism;
   atlas: AtlasName;
   frame: number;
   height: number;
@@ -36,7 +41,7 @@ export const ENTITY_ART: Record<string, Art> = {
   breaker: world(2, 73),
   alarm: utility(8, 56),
   "stair-map": utility(6, 56),
-  "door-code": utility(9, 90),
+  "door-code": utility(7, 55),
   mill: world(4, 88),
   picnic: world(5, 49),
   "flower-bells": world(6, 51),
@@ -79,6 +84,7 @@ export const ENTITY_ART: Record<string, Art> = {
   "old-cart": utility(4, 60),
 };
 export function entitiesFor(level: LevelDefinition): Entity[] {
+  const world = WORLDS[level.day - 1];
   return [
     ...level.puzzles.map((q) => ({
       id: q.id,
@@ -100,6 +106,8 @@ export function entitiesFor(level: LevelDefinition): Entity[] {
         id: q.id,
         type: q.type,
         name: q.name,
+        approach: world.approaches[q.id],
+        baked: world.baked[q.id],
         atlas,
         frame,
         height,
@@ -110,6 +118,8 @@ export function entitiesFor(level: LevelDefinition): Entity[] {
       {
         ...level.exit,
         id: "exit",
+        approach: world.approaches.exit,
+        baked: world.baked.exit,
         type: "exit",
         name: "今日终点",
         atlas:
@@ -120,5 +130,18 @@ export function entitiesFor(level: LevelDefinition): Entity[] {
         height: 85,
         doneFrame: undefined,
       },
-    ]);
+    ])
+    .concat(
+      world.mechanisms.map((m) => ({
+        ...m.position,
+        id: m.id,
+        type: "mechanism" as const,
+        name: m.name,
+        approach: m.approach,
+        mechanism: m,
+        atlas: "utility-props" as const,
+        frame: 14,
+        height: m.height,
+      })),
+    );
 }

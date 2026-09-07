@@ -36,6 +36,7 @@ globalThis.Image = class {
 globalThis.requestAnimationFrame = () => 0;
 const { CampaignGame } = loadSource("src/campaign/CampaignGame.ts");
 const { LEVELS } = loadSource("src/campaign/levels.ts");
+const { WORLDS, LAYOUT_REVISION } = loadSource("src/campaign/worldDesign.ts");
 const hooks = {
   onView: () => {},
   onToast: () => {},
@@ -82,6 +83,21 @@ test("movement, approach, puzzle dependency, checkpoint, final code and unlock a
     const level = game.getLevel();
     // Isolate navigation and interaction from periodic hazard timing in this integration test.
     for (const puzzle of level.puzzles) {
+      const access = game.accessMechanism(puzzle.id);
+      if (access) {
+        const lever = game.entities.find((e) => e.id === access.id);
+        game.navigate(lever, lever, false);
+        for (
+          let tick = 0;
+          tick < 4000 && !game.worldFlags.has(lever.id);
+          tick++
+        )
+          game.update(0.02);
+        assert.ok(
+          game.worldFlags.has(lever.id),
+          "world access mechanism must be reachable",
+        );
+      }
       const entity = game.entities.find((e) => e.id === puzzle.id);
       opened = null;
       game.navigate(entity, entity, false);
@@ -90,7 +106,7 @@ test("movement, approach, puzzle dependency, checkpoint, final code and unlock a
       assert.equal(
         opened,
         puzzle.id,
-        `DAY ${index + 1}: approach must open ${puzzle.id}`,
+        `DAY ${index + 1}: approach must open ${puzzle.id}; player=${JSON.stringify(game.player)} path=${JSON.stringify(game.path)}`,
       );
       game.solvePuzzle(puzzle.id);
       game.setPaused(false);
@@ -127,7 +143,7 @@ test("direction stays stable during diagonal travel; keyboard repeats cannot res
 test("waterfall crossing appears in navigation only after its environmental puzzle", () => {
   const game = new CampaignGame(new Canvas(), hooks);
   game.startLevel(3, true);
-  const far = { x: 1240, y: 650 };
+  const far = game.entities.find((e) => e.id === "gondola").approach;
   assert.equal(game.nav.route(game.player, far).length, 0);
   game.solvePuzzle("valves");
   game.solvePuzzle("lily-path");
@@ -178,7 +194,7 @@ test("active danger stops a running route and resumes the same destination", () 
     ],
   };
   game.elapsedSeconds = 0;
-  game.navigate({ x: 900, y: 450 }, null, false);
+  game.navigate({ x: 875, y: 450 }, null, false);
   // Runtime danger is now scene-local, not elapsedSeconds modulo a global period.
   const hazard = game.level.hazards[0];
   game.hazards.state(hazard).stage = "active";
@@ -312,5 +328,193 @@ test("menus and background tabs freeze warning and soul timelines", () => {
   document.hidden = false;
   game.updateDeath(0.4);
   assert.equal(game.deathScene.age, 0.4);
+  game.destroy();
+});
+
+function walkTo(game, id) {
+  const entity = game.entities.find((e) => e.id === id);
+  game.navigate(entity, entity, false);
+  for (
+    let tick = 0;
+    tick < 5000 && (game.path.length || game.focus || game.pending);
+    tick++
+  )
+    game.update(0.02);
+  return entity;
+}
+
+test("office lever requires power, slides before opening, and opens a real route without crossing desks", () => {
+  const game = new CampaignGame(new Canvas(), hooks);
+  game.startLevel(1, true);
+  game.level = { ...game.level, hazards: [] };
+  const world = WORLDS[1],
+    target = world.approaches.alarm;
+  assert.equal(game.nav.route(game.player, target, () => false, 0).length, 0);
+  walkTo(game, "office-latch");
+  assert.equal(game.worldFlags.has("office-latch"), false);
+  walkTo(game, "breaker");
+  game.solvePuzzle("breaker");
+  game.setPaused(false);
+  assert.ok(game.getView().objective.includes("拉柄"));
+  assert.ok(game.getView().accessHint.includes("已通电"));
+  game.solvePuzzle("alarm");
+  assert.equal(
+    game.solved.has("alarm"),
+    false,
+    "access mechanism is required even for direct solve requests",
+  );
+  const lever = game.entities.find((e) => e.id === "office-latch");
+  game.navigate(lever, lever, false);
+  for (let i = 0; i < 5000 && !game.pending; i++) game.update(0.02);
+  assert.equal(game.pending?.id, lever.id);
+  game.update(0.3);
+  assert.equal(
+    game.worldFlags.has(lever.id),
+    false,
+    "animation must not open collision early",
+  );
+  assert.equal(game.nav.route(game.player, target, () => false, 0).length, 0);
+  game.cancel();
+  assert.equal(game.worldFlags.has(lever.id), false, "cancel is non-mutating");
+  walkTo(game, lever.id);
+  assert.equal(game.worldFlags.has(lever.id), true);
+  assert.ok(game.nav.route(game.player, target, () => false, 0).length);
+  walkTo(game, "alarm");
+  assert.equal(game.paused, true);
+  assert.deepEqual(game.player, target);
+  game.destroy();
+});
+
+test("hammer, cracking, hidden cache and permanent discovery form an optional persistent branch", () => {
+  storage.clear();
+  const cues = [];
+  const game = new CampaignGame(new Canvas(), {
+    ...hooks,
+    onAudio: (cue) => cues.push(cue.id),
+  });
+  game.startLevel(7, true);
+  game.level = { ...game.level, hazards: [] };
+  const cache = game.entities.find((e) => e.id === "cave-keepsake"),
+    wall = game.entities.find((e) => e.id === "cave-wall");
+  assert.equal(game.visibleEntity(cache), false);
+  assert.equal(
+    game.nav.route(game.player, cache.approach, () => false, 0).length,
+    0,
+  );
+  walkTo(game, wall.id);
+  assert.equal(game.worldFlags.has(wall.id), false);
+  walkTo(game, "cave-hammer");
+  assert.deepEqual(game.getView().worldItems, ["矿工小锤"]);
+  game.navigate(wall, wall, false);
+  for (let i = 0; i < 5000 && !game.pending; i++) game.update(0.02);
+  for (let i = 0; i < 15; i++) game.update(0.02);
+  assert.equal(game.worldFlags.has(wall.id), false);
+  assert.equal(game.visibleEntity(cache), false);
+  game.cancel();
+  walkTo(game, wall.id);
+  assert.equal(game.worldFlags.has(wall.id), true);
+  assert.equal(game.visibleEntity(cache), true);
+  assert.ok(game.nav.route(game.player, cache.approach, () => false, 0).length);
+  assert.ok(cues.includes("mechanism.strike"));
+  assert.ok(cues.includes("mechanism.crumble"));
+  walkTo(game, cache.id);
+  walkTo(game, cache.id);
+  assert.deepEqual(game.getView().worldItems, ["矿工小锤", "矿工的夕阳手记"]);
+  assert.equal(game.solved.size, 0, "secret never grants a main-code answer");
+  game.restartAfterDeath();
+  assert.equal(game.worldFlags.has(wall.id), true);
+  const restored = new CampaignGame(new Canvas(), hooks);
+  restored.startLevel(7);
+  assert.deepEqual(restored.getView().worldItems, game.getView().worldItems);
+  assert.equal(restored.nav.isWalkable(restored.player), true);
+  restored.resetCampaignSave();
+  assert.equal(restored.worldFlags.size, 0);
+  restored.destroy();
+  game.destroy();
+});
+
+test("each existing side interaction and exit uses a reachable exact stance in the completed layout", () => {
+  const game = new CampaignGame(new Canvas(), hooks);
+  for (let i = 0; i < 8; i++) {
+    game.startLevel(i, true);
+    game.level = { ...game.level, hazards: [] };
+    game.worldFlags = new Set(
+      WORLDS[i].mechanisms.filter((m) => m.kind !== "gate").map((m) => m.id),
+    );
+    for (const puzzle of game.level.puzzles) game.solvePuzzle(puzzle.id);
+    for (const task of game.level.sideTasks) {
+      const entity = walkTo(game, task.id);
+      assert.ok(game.sideTasks.has(task.id), `DAY ${i + 1} ${task.id}`);
+      assert.ok(
+        Math.hypot(
+          game.player.x - entity.approach.x,
+          game.player.y - entity.approach.y,
+        ) < 0.1,
+      );
+    }
+  }
+  game.destroy();
+});
+
+test("old checkpoints relocate to authored floor while preserving solved clues and later-day access", () => {
+  storage.clear();
+  storage.set(
+    "one-more-day:campaign:v2",
+    JSON.stringify({
+      version: 2,
+      unlocked: 3,
+      completed: [LEVELS[0].id],
+      stamps: ["好"],
+      levels: {
+        [LEVELS[1].id]: {
+          solved: ["breaker", "alarm"],
+          sideTasks: ["water-coworker"],
+          deaths: 3,
+          hintsUsed: 2,
+          checkpoint: { x: 650, y: 340 },
+        },
+      },
+    }),
+  );
+  const game = new CampaignGame(new Canvas(), hooks);
+  game.startLevel(1);
+  assert.deepEqual(game.player, WORLDS[1].approaches.alarm);
+  assert.equal(game.nav.isWalkable(game.player), true);
+  assert.ok(game.worldFlags.has("office-latch"));
+  assert.equal(game.getView().deaths, 3);
+  assert.equal(game.getSave().unlocked, 3);
+  assert.equal(
+    game.getSave().levels[LEVELS[1].id].layoutRevision,
+    LAYOUT_REVISION,
+  );
+  game.destroy();
+});
+
+test("stale routes cannot cross walls, deep wall clicks do not snap through, and remote interactions do not fire", () => {
+  let opened = 0;
+  const game = new CampaignGame(new Canvas(), {
+    ...hooks,
+    onPuzzle: () => opened++,
+  });
+  game.startLevel(1, true);
+  game.level = { ...game.level, hazards: [] };
+  const behindDesk = { x: 660, y: 370 };
+  game.navigate(behindDesk, null, false);
+  assert.equal(game.path.length, 0);
+  const breaker = game.entities.find((e) => e.id === "breaker");
+  game.arrive(breaker);
+  assert.equal(game.pending, null);
+  assert.equal(opened, 0);
+  game.path = [{ x: 900, y: 740 }];
+  game.destination = { x: 900, y: 740 };
+  for (let i = 0; i < 350; i++) {
+    game.update(0.02);
+    assert.ok(game.nav.isWalkable(game.player));
+  }
+  assert.ok(
+    Math.hypot(game.player.x - 900, game.player.y - 740) > 20,
+    "stops outside southern filing cabinets",
+  );
+  assert.equal(game.path.length, 0);
   game.destroy();
 });
