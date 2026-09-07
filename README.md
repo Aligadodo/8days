@@ -38,6 +38,8 @@ npm run build
 - `docs/`：设计、关卡、艺术方向、路线图和决策记录
 - `docs/REFERENCE_ANALYSIS.md`：参考游戏的操作与地图原则分析
 - `docs/CONTENT_SYSTEM_PLAN.md`：可复用元素库、任务成就和地图深化计划
+- `docs/PUZZLE_AUDIO_ITERATION_PLAN.md`：专业解谜框架、花谷 0.4 谜题链、音频语言与实施验收
+- `docs/LEVEL_AUTHORING_TEMPLATE.md`：后续每一关复用的谜题、危险、音频和试玩策划卡
 - `design/concept-art/`：已确认和探索中的概念原画
 
 设计文档与实现状态必须一起更新。原画用于方向校准，不应直接视为最终可发布的地图或精灵素材。

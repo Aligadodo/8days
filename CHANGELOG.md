@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added a professional puzzle-authoring framework covering puzzle contracts, teaching curves, hint escalation, state recovery, and playtest metrics.
+- Designed the Spring Flower Valley 0.4 puzzle chain around waterwheel repair, picnic completion, wind teaching, flower-and-bee state changes, and icon-based passcode reconstruction.
+- Defined a reusable audio event language for UI, navigation, footsteps, items, puzzles, hazards, ambience, music, death, tasks, and achievements.
+- Added accessibility requirements for important-sound captions, multisensory cues, independent volume groups, mono output, and silent play.
+- Added a reusable level, puzzle, hazard, audio, and playtest authoring template.
+
 ## 0.3.0 - 2026-09-06
 
 - Added a four-color pixel-outline language for story, utility, optional, and discovery interactions, with hover and completed states.
