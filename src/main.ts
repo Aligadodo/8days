@@ -1,8 +1,8 @@
 import "./style.css";
-import { AudioManager, type AudioBus, type AudioEventId } from "./audio/AudioManager";
-import { ACHIEVEMENTS, CLUES, DISCOVERIES, ITEMS, ITEM_ORDER, PASSCODE } from "./game/content";
-import { Game } from "./game/Game";
-import type { DeathInfo, Direction, ViewState } from "./game/types";
+import { AudioManager, type AudioBus } from "./audio/AudioManager";
+import { CampaignGame } from "./campaign/CampaignGame";
+import { CAMPAIGN_PHRASE, LEVELS } from "./campaign/levels";
+import type { CampaignView, LevelDefinition, PuzzleSpec } from "./campaign/types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root not found");
@@ -10,442 +10,242 @@ if (!app) throw new Error("App root not found");
 app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
-      <div class="wordmark"><span class="wordmark-flower">✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · PLAYABLE PROTOTYPE</small></div></div>
-      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.4</div>
+      <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
+      <div class="release-chip"><i></i> CAMPAIGN 0.8</div>
     </header>
-
-    <section class="game-frame" aria-label="春日花谷游戏区域">
-      <canvas id="gameCanvas" aria-label="Q版像素风春日花谷探索地图"></canvas>
-
-      <div class="hud-top-left pixel-panel">
-        <div class="weather-icon">☀</div>
-        <div><b>DAY 03</b><span id="timeValue">09:10</span></div>
+    <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
+      <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
+      <div class="hud-top">
+        <div class="day-card pixel-panel"><span id="weatherIcon">☂</span><div><b id="dayValue">DAY 01</b><small id="timeValue">07:18</small></div></div>
+        <div class="mission-stack">
+          <button id="objectiveButton" class="objective-card pixel-panel" aria-expanded="true"><span class="objective-star">★</span><span><small id="progressValue">主线 0 / 4</small><b id="objectiveValue">找到第一处线索</b></span><i>⌃</i></button>
+          <div id="guideCard" class="guide-card pixel-panel"><div><span class="guide-label">现在做什么</span><p id="guideReason">沿金色光标前进，点击带金边的物件。</p></div><button id="fieldHintButton">给我一点提示 <span>1/3</span></button><p id="fieldHint" class="field-hint" hidden></p></div>
+        </div>
+        <div class="hud-actions"><button id="fullscreenButton" class="icon-button pixel-panel" aria-label="进入全屏" title="全屏">⛶</button><button id="menuButton" class="icon-button pixel-panel" aria-label="打开背包" aria-expanded="false" title="背包">▣</button></div>
       </div>
-      <div class="objective-chip pixel-panel"><span>★</span><b id="objectiveValue">调查水磨坊附近的闪光</b></div>
-      <button id="menuButton" class="round-button pixel-panel" aria-label="打开背包菜单" aria-expanded="false">▣</button>
-
+      <div id="routeHelp" class="route-help"><i></i>点击地面移动 · 点击发光物自动靠近</div>
+      <div id="quickbar" class="quickbar" aria-label="本关获得的物品"></div>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
-      <div id="interactionPrompt" class="interaction-prompt" hidden></div>
       <div id="soundCaption" class="sound-caption" role="status" aria-live="polite" hidden></div>
-
-      <div id="quickbar" class="quickbar" aria-label="快捷物品栏"></div>
-
-      <div class="touch-controls" aria-label="触屏控制">
-        <div class="dpad">
-          <button data-move="up" aria-label="向上">▲</button>
-          <button data-move="left" aria-label="向左">◀</button>
-          <button data-move="down" aria-label="向下">▼</button>
-          <button data-move="right" aria-label="向右">▶</button>
-        </div>
-        <div class="touch-actions">
-          <button id="touchUse">F<small>使用</small></button>
-          <button id="touchInteract" class="primary">E<small>调查</small></button>
-        </div>
-      </div>
-
-      <aside id="drawer" class="drawer" aria-label="折叠菜单" aria-hidden="true">
-        <div class="drawer-head"><div><small>POCKET MENU</small><b>随身背包</b></div><button id="drawerClose" aria-label="关闭菜单">×</button></div>
-        <nav class="drawer-tabs" aria-label="菜单分类">
-          <button class="active" data-tab="inventory"><span>▣</span>道具</button>
-          <button data-tab="journal"><span>▤</span>日志</button>
-          <button data-tab="save"><span>▥</span>存档</button>
-          <button data-tab="settings"><span>⚙</span>设置</button>
-        </nav>
-        <section class="drawer-panel active" data-panel="inventory">
-          <p class="panel-kicker">本轮携带 · 最多五件</p>
-          <div id="inventoryGrid" class="inventory-grid"></div>
-        </section>
-        <section class="drawer-panel" data-panel="journal">
-          <div class="journal-title"><div><small>LIFE LOG</small><b>今天记住的事</b></div><span id="journalProgress">0%</span></div>
-          <div class="journal-section-head"><b>今日任务</b><small>主线与小事</small></div>
-          <div id="taskList" class="task-list"></div>
-          <div class="journal-section-head"><b>口令线索</b><small id="clueCount">0 / 4</small></div>
-          <div id="clueList" class="clue-list"></div>
-          <div class="journal-section-head"><b>自然发现</b><small id="discoveryCount">0 / 5</small></div>
-          <div id="discoveryGrid" class="discovery-grid"></div>
-          <div class="journal-section-head"><b>小小成就</b><small id="achievementCount">0 / 9</small></div>
-          <div id="achievementGrid" class="achievement-grid"></div>
-          <div class="death-count">尝试次数 <b id="deathCount">01</b></div>
-        </section>
-        <section class="drawer-panel" data-panel="save">
-          <div class="save-card"><span>☁</span><h3>设备本地存档</h3><p>保存已经发现的线索、尝试次数、通关照片和辅助设置。关卡道具会在死亡后重置。</p><button id="saveButton" class="menu-action">保存生活日志</button><small id="saveStatus">尚未手动保存</small></div>
-        </section>
-        <section class="drawer-panel" data-panel="settings">
-          <label class="setting-row"><div><b>加强危险轮廓</b><small>为风口和坠落区域增加红色边界</small></div><input id="dangerAssist" type="checkbox" /></label>
-          <label class="setting-row"><div><b>减少动态效果</b><small>减弱水流、花朵和角色晃动</small></div><input id="reducedMotion" type="checkbox" /></label>
-          <div class="audio-settings">
-            <div class="setting-section-title"><b>声音</b><small>音乐负责情绪，环境声负责空间</small></div>
-            <label class="volume-row"><span>主音量</span><input data-audio-volume="master" type="range" min="0" max="100" step="5" /><output></output></label>
-            <label class="volume-row"><span>音乐</span><input data-audio-volume="music" type="range" min="0" max="100" step="5" /><output></output></label>
-            <label class="volume-row"><span>效果</span><input data-audio-volume="effects" type="range" min="0" max="100" step="5" /><output></output></label>
-            <label class="volume-row"><span>环境</span><input data-audio-volume="ambience" type="range" min="0" max="100" step="5" /><output></output></label>
-            <label class="setting-row compact"><div><b>重要声音字幕</b><small>显示谜题和危险声音的方向</small></div><input id="soundCaptions" type="checkbox" /></label>
-            <label class="setting-row compact"><div><b>单声道</b><small>取消左右声像，保留视觉方向提示</small></div><input id="monoAudio" type="checkbox" /></label>
-          </div>
-          <div class="signal-legend"><b>世界光边</b><span><i class="story"></i>主线</span><span><i class="utility"></i>工具</span><span><i class="optional"></i>小事</span><span><i class="discovery"></i>观察</span></div>
-          <div class="controls-list"><b>操作方式</b><span><kbd>左键</kbd> 点地移动，按住可持续跟随</span><span><kbd>左键</kbd> 点击闪光物，自动走近调查</span><span><kbd>右键</kbd> 取消移动　<kbd>B</kbd> 背包</span><span><kbd>WASD</kbd> 备用移动　<kbd>E</kbd> 调查</span></div>
-        </section>
+      <aside id="drawer" class="drawer" aria-hidden="true">
+        <div class="drawer-head"><div><small>POCKET MENU</small><b>随身日志</b></div><button id="drawerClose" aria-label="关闭">×</button></div>
+        <nav class="drawer-tabs"><button class="active" data-tab="inventory">▣<span>道具</span></button><button data-tab="journal">▤<span>日志</span></button><button data-tab="save">▥<span>存档</span></button><button data-tab="settings">⚙<span>设置</span></button></nav>
+        <section class="drawer-panel active" data-panel="inventory"><div class="section-title"><small>FOUND TODAY</small><b>今天带在身上的东西</b></div><div id="inventoryGrid" class="inventory-grid"></div></section>
+        <section class="drawer-panel" data-panel="journal"><div class="section-title"><small>LIFE LOG</small><b id="journalTitle">DAY 01 · 暴雨通勤</b></div><div class="journal-progress"><span id="journalBar"></span></div><div class="journal-block"><b>主线推理</b><div id="clueList" class="clue-list"></div></div><div class="journal-block"><b>顺手做的小事</b><div id="sideList" class="side-list"></div></div><div class="journal-block"><b>八日印章</b><div id="stampList" class="stamp-list"></div></div></section>
+        <section class="drawer-panel" data-panel="save"><div class="save-card"><span>☁</span><h3>设备本地存档</h3><p>谜题线索、死亡后的经验、支线与已解锁关卡都会自动保存。</p><button id="saveButton" class="menu-action">立即保存生活日志</button><small id="saveStatus">自动保存已开启</small></div><button id="campaignButton" class="secondary-action">返回八日旅程</button><button id="resetSaveButton" class="secondary-action reset-action">重置全部战役进度</button></section>
+        <section class="drawer-panel" data-panel="settings"><label class="setting-row"><div><b>加强危险轮廓</b><small>始终显示危险区域边界</small></div><input id="dangerAssist" type="checkbox"></label><label class="setting-row"><div><b>减少动态效果</b><small>关闭晃动、漂浮和呼吸动画</small></div><input id="reducedMotion" type="checkbox"></label><label class="setting-row"><div><b>声音字幕</b><small>把重要方向声转成画面提示</small></div><input id="soundCaptions" type="checkbox"></label><label class="setting-row"><div><b>单声道</b><small>取消左右声像</small></div><input id="monoAudio" type="checkbox"></label><div class="volume-list"><label><span>主音量</span><input data-volume="master" type="range" min="0" max="100" step="5"><output></output></label><label><span>音乐</span><input data-volume="music" type="range" min="0" max="100" step="5"><output></output></label><label><span>音效</span><input data-volume="effects" type="range" min="0" max="100" step="5"><output></output></label><label><span>环境</span><input data-volume="ambience" type="range" min="0" max="100" step="5"><output></output></label></div><div class="legend"><b>光边含义</b><span><i class="main"></i>主线</span><span><i class="side"></i>小事</span><span><i class="done"></i>完成</span></div></section>
       </aside>
-
-      <div class="overlay active" data-overlay="intro">
-        <div class="intro-card">
-          <p class="eyebrow">A SMALL THING FOR TODAY</p>
-          <span class="chapter-no">03</span>
-          <h1>春日花谷</h1>
-          <p class="intro-copy">把勿忘我的种子送到山顶小屋。<br>不用走得最快，记得看看沿途的花。</p>
-          <div class="intro-rules"><span><i>移动</i> 左键点地 / 按住</span><span><i>调查</i> 点击闪光目标</span><span><i>备用</i> WASD / E</span></div>
-          <button id="startButton" class="big-action">开始今天 <span>→</span></button>
-          <small>危险都会提前留下迹象。失败后，你会记得已经发现的事。</small>
-        </div>
-      </div>
-
-      <div class="overlay" data-overlay="death" hidden>
-        <div class="death-card">
-          <p class="eyebrow danger">THIS DAY ENDED AT <span id="deathTime">09:10</span></p>
-          <div class="fallen-flower">✿</div>
-          <h2 id="deathCause">这一天停下了</h2>
-          <p id="deathLesson"></p>
-          <button id="restartButton" class="big-action danger-action">带着记忆重来 <span>↻</span></button>
-          <small>已发现的口令线索不会消失。</small>
-        </div>
-      </div>
-
-      <div class="overlay" data-overlay="code" hidden>
-        <div class="code-card">
-          <p class="eyebrow">THE COTTAGE DOOR</p>
-          <h2>让门想起今天</h2>
-          <p class="code-hint">按门框从左到右的图案，把日志里的四段记忆放回原位。</p>
-          <div class="code-order"><span data-code-index="0"><i>◉</i>水轮</span><span data-code-index="1"><i>杯</i>茶杯</span><span data-code-index="2"><i>✿</i>花信</span><span data-code-index="3"><i>⌂</i>屋檐</span></div>
-          <input id="codeInput" inputmode="numeric" maxlength="4" readonly aria-label="四位通关口令" />
-          <div class="keypad" aria-label="数字键盘">${[1,2,3,4,5,6,7,8,9].map((n) => `<button data-digit="${n}">${n}</button>`).join("")}<button data-key="back">←</button><button data-digit="0">0</button><button data-key="enter">✓</button></div>
-          <div class="code-actions"><button id="codeCancel">再想想</button><button id="codeSubmit">确认口令</button></div>
-        </div>
-      </div>
-
-      <div class="overlay" data-overlay="complete" hidden>
-        <div class="complete-card">
-          <div class="photo-frame"><div class="photo-sky"></div><div class="photo-hill"></div><span>✿</span></div>
-          <p class="eyebrow">TODAY, REMEMBERED</p>
-          <h2>门开了，花也开了。</h2>
-          <blockquote>“花开的时候，不要只顾着赶路。”</blockquote>
-          <div class="stamp"><span>今日印章</span><b>生</b></div>
-          <button id="replayButton" class="big-action">再走一次 <span>↻</span></button>
-        </div>
-      </div>
+      <div id="campaignOverlay" class="overlay active"><div class="campaign-card"><div class="campaign-copy"><p class="eyebrow">EIGHT ORDINARY DAYS</p><h1>八日旅程</h1><p>死亡不是猜拳。观察环境的提前迹象，记住失败带来的知识，再把今天认真走完。</p><div class="phrase-preview"><small>最终日记</small><b id="phrasePreview">＿＿＿＿，＿＿＿＿</b></div></div><div id="levelGrid" class="level-grid"></div><div id="levelBrief" class="level-brief"></div></div></div>
+      <div id="puzzleOverlay" class="overlay" hidden><div class="puzzle-card"><button id="puzzleClose" class="modal-close" aria-label="暂时离开谜题">×</button><div class="puzzle-heading"><span id="puzzleIcon">◉</span><div><p class="eyebrow" id="puzzleType">SEQUENCE</p><h2 id="puzzleTitle">谜题</h2></div></div><p id="puzzleStory" class="puzzle-story"></p><div class="evidence-board"><b>现场观察</b><div id="evidenceList"></div></div><div class="solve-board"><b id="puzzleInstruction"></b><div id="puzzleControls"></div><p id="puzzleFeedback" class="puzzle-feedback" aria-live="polite"></p></div><div class="hint-ladder"><button id="puzzleHintButton">拆开一层提示 <span>0 / 3</span></button><p id="puzzleHintText">提示会逐层从“注意什么”推进到“具体怎么做”。</p></div></div></div>
+      <div id="codeOverlay" class="overlay" hidden><div class="code-card"><button id="codeClose" class="modal-close" aria-label="离开口令门">×</button><p class="eyebrow">FINAL DEDUCTION</p><h2>把今天放回正确顺序</h2><p>数字不是直接抄来的。先按终点门框上的符号顺序，再查日志中每个符号对应的数字。</p><div id="codeOrder" class="code-order"></div><input id="codeInput" maxlength="4" inputmode="numeric" aria-label="四位通关口令" autocomplete="off"><div class="keypad">${[1,2,3,4,5,6,7,8,9].map((digit) => `<button data-digit="${digit}">${digit}</button>`).join("")}<button data-key="back">←</button><button data-digit="0">0</button><button data-key="enter">✓</button></div><p id="codeFeedback" class="puzzle-feedback" aria-live="polite"></p></div></div>
+      <div id="deathOverlay" class="overlay" hidden><div class="death-card"><p class="eyebrow danger">THIS DAY ENDED AT <span id="deathTime"></span></p><div class="fallen-flower">✿</div><h2 id="deathCause">这一天停下了</h2><p id="deathLesson"></p><div class="memory-kept">已解开的主线线索会保留。你失去的是这次路程，不是学到的经验。</div><button id="restartButton" class="primary-action">带着记忆重来 <span>↻</span></button></div></div>
+      <div id="completeOverlay" class="overlay" hidden><div class="complete-card"><p class="eyebrow">DAY COMPLETE</p><span id="completeStamp" class="big-stamp">好</span><h2 id="completeTitle"></h2><p id="completeEnding"></p><div id="completeStats" class="complete-stats"></div><div class="complete-actions"><button id="nextLevelButton" class="primary-action">进入下一天 →</button><button id="backCampaignButton" class="secondary-action">八日旅程</button></div></div></div>
     </section>
+  </main>`;
 
-    <footer class="site-footer"><span><kbd>左键</kbd> 点击移动 / 调查　<kbd>右键</kbd> 取消　<kbd>WASD</kbd> 备用</span><span>原型目标：理解环境规律，解开 4 段生活线索</span></footer>
-  </main>
-`;
+const byId = <T extends HTMLElement>(id: string) => {
+  const element = document.getElementById(id);
+  if (!element) throw new Error(`Missing #${id}`);
+  return element as T;
+};
 
-function element<T extends HTMLElement>(selector: string) {
-  const node = document.querySelector<T>(selector);
-  if (!node) throw new Error(`Missing element: ${selector}`);
-  return node;
-}
-
-const canvas = element<HTMLCanvasElement>("#gameCanvas");
-const timeValue = element("#timeValue");
-const objectiveValue = element("#objectiveValue");
-const prompt = element("#interactionPrompt");
-const soundCaption = element("#soundCaption");
-const quickbar = element("#quickbar");
-const inventoryGrid = element("#inventoryGrid");
-const taskList = element("#taskList");
-const clueList = element("#clueList");
-const clueCount = element("#clueCount");
-const journalProgress = element("#journalProgress");
-const discoveryGrid = element("#discoveryGrid");
-const discoveryCount = element("#discoveryCount");
-const achievementGrid = element("#achievementGrid");
-const achievementCount = element("#achievementCount");
-const deathCount = element("#deathCount");
-const toast = element("#toast");
-const drawer = element("#drawer");
-const menuButton = element<HTMLButtonElement>("#menuButton");
-const dangerAssist = element<HTMLInputElement>("#dangerAssist");
-const reducedMotion = element<HTMLInputElement>("#reducedMotion");
-const soundCaptions = element<HTMLInputElement>("#soundCaptions");
-const monoAudio = element<HTMLInputElement>("#monoAudio");
-const codeInput = element<HTMLInputElement>("#codeInput");
+const canvas = byId<HTMLCanvasElement>("gameCanvas");
+const gameFrame = byId<HTMLElement>("gameFrame");
+const drawer = byId<HTMLElement>("drawer");
+const campaignOverlay = byId<HTMLElement>("campaignOverlay");
+const puzzleOverlay = byId<HTMLElement>("puzzleOverlay");
+const codeOverlay = byId<HTMLElement>("codeOverlay");
+const deathOverlay = byId<HTMLElement>("deathOverlay");
+const completeOverlay = byId<HTMLElement>("completeOverlay");
+const toast = byId<HTMLElement>("toast");
+const soundCaption = byId<HTMLElement>("soundCaption");
 let toastTimer = 0;
 let captionTimer = 0;
-let modal: "intro" | "death" | "code" | "complete" | null = "intro";
-let latestState: ViewState | undefined;
-let drawerOpen = false;
+let currentView: CampaignView | null = null;
+let activePuzzle: PuzzleSpec | null = null;
+let sequenceInput: string[] = [];
+let patternInput: string[] = [];
+let puzzleHintStage = 0;
+let selectedLevel = 0;
+const fieldHintStages = new Map<string, number>();
 
-function showToast(message: string) {
-  toast.textContent = message;
-  toast.classList.add("visible");
-  window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 4300);
-}
-
-function showSoundCaption(message: string, pan: number) {
-  const direction = pan < -0.22 ? "左侧" : pan > 0.22 ? "右侧" : "附近";
-  soundCaption.textContent = `〔${direction}：${message}〕`;
+const audio = new AudioManager((caption, pan) => {
+  soundCaption.textContent = `${pan < -0.25 ? "◀ " : pan > 0.25 ? "▶ " : ""}${caption}`;
   soundCaption.hidden = false;
-  soundCaption.classList.remove("visible");
-  void soundCaption.offsetWidth;
-  soundCaption.classList.add("visible");
+  soundCaption.classList.add("show");
   window.clearTimeout(captionTimer);
-  captionTimer = window.setTimeout(() => {
-    soundCaption.classList.remove("visible");
-    soundCaption.hidden = true;
-  }, 3200);
-}
+  captionTimer = window.setTimeout(() => { soundCaption.classList.remove("show"); soundCaption.hidden = true; }, 2600);
+});
 
-const audio = new AudioManager(showSoundCaption);
-const initialAudioSettings = audio.getSettings();
+const showToast = (message: string, tone: "normal" | "success" | "danger" = "normal") => {
+  toast.textContent = message;
+  toast.className = `toast show ${tone}`;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toast.classList.remove("show"), 3300);
+};
+const showOverlay = (element: HTMLElement) => { element.hidden = false; requestAnimationFrame(() => element.classList.add("active")); };
+const hideOverlay = (element: HTMLElement) => { element.classList.remove("active"); window.setTimeout(() => { element.hidden = true; }, 180); };
+let game!: CampaignGame;
 
-function setOverlay(name: typeof modal) {
-  modal = name;
-  document.querySelectorAll<HTMLElement>("[data-overlay]").forEach((overlay) => {
-    const active = overlay.dataset.overlay === name;
-    overlay.hidden = !active;
-    overlay.classList.toggle("active", active);
-  });
-}
+const updateView = (view: CampaignView) => {
+  currentView = view;
+  byId("weatherIcon").textContent = view.level.weatherIcon;
+  byId("dayValue").textContent = `DAY ${String(view.level.day).padStart(2, "0")}`;
+  const [baseHour, baseMinute] = view.level.startTime.split(":").map(Number);
+  const gameMinutes = Math.floor(view.elapsedSeconds / 8);
+  byId("timeValue").textContent = `${String((baseHour + Math.floor((baseMinute + gameMinutes) / 60)) % 24).padStart(2, "0")}:${String((baseMinute + gameMinutes) % 60).padStart(2, "0")}`;
+  byId("progressValue").textContent = `主线 ${view.solved.length} / ${view.level.puzzles.length}`;
+  byId("objectiveValue").textContent = view.objective;
+  const current = view.currentPuzzle;
+  byId("guideReason").textContent = current ? `前往带金色光边的“${current.title}”。先阅读现场观察，再动手。` : "四段记忆已经齐全。前往终点，按门框符号顺序查日志。";
+  renderFieldHint();
+  renderInventory(view);
+  renderJournal(view);
+};
 
-function iconFor(item: string) {
-  return ITEMS[item as keyof typeof ITEMS]?.icon ?? "·";
-}
-
-function renderView(state: ViewState) {
-  latestState = state;
-  timeValue.textContent = state.time;
-  objectiveValue.textContent = state.objective;
-  prompt.hidden = !state.interaction;
-  prompt.textContent = state.interaction ?? "";
-  deathCount.textContent = String(Math.max(1, state.deaths + 1)).padStart(2, "0");
-  clueCount.textContent = `${state.clues.length} / ${CLUES.length}`;
-  discoveryCount.textContent = `${state.discoveries.length} / ${DISCOVERIES.length}`;
-  achievementCount.textContent = `${state.achievements.length} / ${ACHIEVEMENTS.length}`;
-  const journalDone = state.clues.length + state.discoveries.length + state.achievements.length;
-  const journalTotal = CLUES.length + DISCOVERIES.length + ACHIEVEMENTS.length;
-  journalProgress.textContent = `${Math.round(journalDone / journalTotal * 100)}%`;
-  dangerAssist.checked = state.dangerAssist;
-  reducedMotion.checked = state.reducedMotion;
-
-  quickbar.innerHTML = ITEM_ORDER.map((id, index) => {
-    const owned = state.inventory.includes(id);
-    return `<button class="quick-slot ${state.selectedSlot === index ? "selected" : ""} ${owned ? "owned" : "empty"}" data-slot="${index}" aria-label="${owned ? ITEMS[id].name : `空物品格 ${index + 1}`}"><span>${owned ? iconFor(id) : ""}</span><small>${index + 1}</small></button>`;
-  }).join("");
-
-  inventoryGrid.innerHTML = ITEM_ORDER.map((id) => {
-    const owned = state.inventory.includes(id);
-    const item = ITEMS[id];
-    return `<article class="inventory-item ${owned ? "" : "locked"}"><span>${owned ? item.icon : "?"}</span><div><b>${owned ? item.name : "尚未发现"}</b><small>${owned ? item.description : "继续探索花谷。"}</small></div></article>`;
-  }).join("");
-
-  clueList.innerHTML = CLUES.map((clue) => {
-    const found = state.clues.includes(clue.id);
-    return `<article class="clue-item ${found ? "found" : "missing"}"><span>${found ? clue.digit : "?"}</span><div><b>${found ? clue.title : "一段还没遇见的记忆"}</b><small>${found ? clue.memory : "闪光会在附近轻轻响起。"}</small></div></article>`;
-  }).join("");
-
-  taskList.innerHTML = state.tasks.map((task) => `
-    <article class="task-item ${task.done ? "done" : ""} ${task.optional ? "optional" : "main"}">
-      <span>${task.done ? "✓" : task.optional ? "·" : "★"}</span>
-      <div><div class="task-title"><b>${task.title}</b><small>${task.progress}</small></div><p>${task.detail}</p></div>
-    </article>
-  `).join("");
-
-  discoveryGrid.innerHTML = DISCOVERIES.map((discovery) => {
-    const found = state.discoveries.includes(discovery.id);
-    return `<article class="discovery-item ${found ? "found" : "locked"}" title="${found ? discovery.note : "在花谷中寻找带粉色光边的小生命"}"><span>${found ? discovery.icon : "?"}</span><b>${found ? discovery.title : "等待观察"}</b></article>`;
-  }).join("");
-
-  achievementGrid.innerHTML = ACHIEVEMENTS.map((achievement) => {
-    const unlocked = state.achievements.includes(achievement.id);
-    return `<article class="achievement-item ${unlocked ? "unlocked" : "locked"}" title="${achievement.description}"><span>${unlocked ? achievement.icon : "·"}</span><b>${achievement.title}</b></article>`;
-  }).join("");
-}
-
-function showDeath(info: DeathInfo) {
-  closeDrawer(false);
-  element("#deathTime").textContent = info.time;
-  element("#deathCause").textContent = info.cause;
-  element("#deathLesson").textContent = info.lesson;
-  setOverlay("death");
-}
-
-const game = new Game(canvas, {
-  onViewChange: renderView,
-  onMessage: showToast,
-  onDeath: showDeath,
-  onCodeRequest: () => {
-    closeDrawer(false);
-    codeInput.value = "";
-    renderCodeProgress();
-    setOverlay("code");
-  },
-  onComplete: () => setOverlay("complete"),
+game = new CampaignGame(canvas, {
+  onView: updateView,
+  onToast: showToast,
+  onPuzzle: openPuzzle,
+  onFinal: openCode,
+  onDeath: (info) => { byId("deathTime").textContent = info.time; byId("deathCause").textContent = info.cause; byId("deathLesson").textContent = info.lesson; showOverlay(deathOverlay); },
+  onComplete: (level, view) => openComplete(level, view),
   onAudio: (cue) => audio.play(cue),
 });
 
-function openDrawer() {
-  if (modal) return;
-  drawerOpen = true;
-  drawer.classList.add("open");
-  drawer.setAttribute("aria-hidden", "false");
-  menuButton.setAttribute("aria-expanded", "true");
-  game.setPaused(true);
-  audio.play({ id: "ui.drawer.open" });
+function renderCampaign() {
+  const save = game.getSave();
+  const levelGrid = byId("levelGrid");
+  levelGrid.innerHTML = LEVELS.map((level, index) => {
+    const locked = index >= save.unlocked;
+    const complete = save.completed.includes(level.id);
+    const progress = save.levels[level.id]?.solved.length ?? 0;
+    return `<button class="level-tile ${selectedLevel === index ? "selected" : ""} ${locked ? "locked" : ""} ${complete ? "complete" : ""}" data-level="${index}" ${locked ? "disabled" : ""}><span class="level-day">${String(level.day).padStart(2, "0")}</span><i>${complete ? level.stamp : locked ? "锁" : level.weatherIcon}</i><b>${level.name}</b><small>${complete ? "已完成" : locked ? "完成前一天解锁" : `${progress}/4 线索`}</small></button>`;
+  }).join("");
+  levelGrid.querySelectorAll<HTMLButtonElement>("[data-level]").forEach((button) => button.addEventListener("click", () => { selectedLevel = Number(button.dataset.level); audio.play({ id: "ui.click.soft" }); renderCampaign(); }));
+  const level = LEVELS[selectedLevel];
+  const isComplete = save.completed.includes(level.id);
+  byId("levelBrief").innerHTML = `<div><small>DAY ${String(level.day).padStart(2, "0")} · ${level.subtitle}</small><h2>${level.name}</h2><p>${level.intro}</p><span><b>今日目的</b>${level.goal}</span></div><button id="startLevelButton" class="primary-action">${isComplete ? "重新走这一天" : "开始今天"} →</button>`;
+  byId("startLevelButton").addEventListener("click", () => { void audio.unlock().then(() => audio.startAmbience()); game.startLevel(selectedLevel, isComplete); hideOverlay(campaignOverlay); });
+  byId("phrasePreview").textContent = save.stamps.length === LEVELS.length ? CAMPAIGN_PHRASE : `${save.stamps.join("")}${"＿".repeat(LEVELS.length - save.stamps.length)}`;
 }
 
-function closeDrawer(resume = true) {
-  const wasOpen = drawerOpen;
-  drawerOpen = false;
-  drawer.classList.remove("open");
-  drawer.setAttribute("aria-hidden", "true");
-  menuButton.setAttribute("aria-expanded", "false");
-  if (resume && !modal) game.setPaused(false);
-  if (wasOpen) audio.play({ id: "ui.drawer.close" });
+function renderInventory(view: CampaignView) {
+  byId("inventoryGrid").innerHTML = view.inventory.length ? view.inventory.map((item, index) => `<div class="inventory-item"><span>${view.level.puzzles[index]?.icon ?? "✦"}</span><b>${item}</b><small>主线道具</small></div>`).join("") : `<div class="empty-state"><span>◇</span><p>背包还是空的。<br>调查金色光边物件，会获得能推进路线的东西。</p></div>`;
+  byId("quickbar").innerHTML = [0, 1, 2, 3].map((index) => { const item = view.inventory[index]; return `<div class="quick-slot ${item ? "filled" : ""}" title="${item ?? "空格"}"><small>${index + 1}</small>${item ? `<span>${view.level.puzzles[index]?.icon ?? "✦"}</span><b>${item}</b>` : ""}</div>`; }).join("");
 }
 
-element("#startButton").addEventListener("click", () => {
-  void audio.unlock().then(() => {
-    audio.startAmbience();
-    audio.play({ id: "music.spring.intro" });
-  });
-  setOverlay(null);
-  game.start();
-});
-element("#restartButton").addEventListener("click", () => {
-  audio.play({ id: "music.spring.intro" });
-  setOverlay(null);
-  game.restart();
-});
-element("#replayButton").addEventListener("click", () => {
-  audio.play({ id: "music.spring.intro" });
-  setOverlay(null);
-  game.restart();
-});
-menuButton.addEventListener("click", () => drawerOpen ? closeDrawer() : openDrawer());
-element("#drawerClose").addEventListener("click", () => closeDrawer());
-element("#touchInteract").addEventListener("click", () => game.interact());
-element("#touchUse").addEventListener("click", () => game.useSelected());
-element("#saveButton").addEventListener("click", () => {
-  game.manualSave();
-  element("#saveStatus").textContent = `刚刚保存 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
-});
-dangerAssist.addEventListener("change", () => game.setDangerAssist(dangerAssist.checked));
-reducedMotion.addEventListener("change", () => game.setReducedMotion(reducedMotion.checked));
-soundCaptions.checked = initialAudioSettings.captions;
-monoAudio.checked = initialAudioSettings.mono;
-soundCaptions.addEventListener("change", () => audio.setCaptions(soundCaptions.checked));
-monoAudio.addEventListener("change", () => audio.setMono(monoAudio.checked));
-
-document.querySelectorAll<HTMLInputElement>("[data-audio-volume]").forEach((input) => {
-  const bus = input.dataset.audioVolume as "master" | AudioBus;
-  const output = input.parentElement?.querySelector("output");
-  const value = Math.round(initialAudioSettings[bus] * 100);
-  input.value = String(value);
-  if (output) output.textContent = `${value}%`;
-  input.addEventListener("input", () => {
-    const next = Number(input.value);
-    audio.setVolume(bus, next / 100);
-    if (output) output.textContent = `${next}%`;
-  });
-});
-
-quickbar.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slot]");
-  if (button) game.selectSlot(Number(button.dataset.slot));
-});
-
-document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll("[data-tab]").forEach((tab) => tab.classList.toggle("active", tab === button));
-    document.querySelectorAll<HTMLElement>("[data-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === button.dataset.tab));
-  });
-});
-
-document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => {
-  const direction = button.dataset.move as Direction;
-  const press = (event: Event) => {
-    event.preventDefault();
-    game.setMovement(direction, true);
-  };
-  const release = (event: Event) => {
-    event.preventDefault();
-    game.setMovement(direction, false);
-  };
-  button.addEventListener("pointerdown", press);
-  button.addEventListener("pointerup", release);
-  button.addEventListener("pointercancel", release);
-  button.addEventListener("pointerleave", release);
-});
-
-function addDigit(digit: string) {
-  if (codeInput.value.length >= PASSCODE.length) return;
-  const memoryEvents: AudioEventId[] = ["memory.wheel", "memory.cup", "memory.flower", "memory.home"];
-  audio.play({ id: memoryEvents[codeInput.value.length] });
-  codeInput.value += digit;
-  renderCodeProgress();
+function renderJournal(view: CampaignView) {
+  byId("journalTitle").textContent = `DAY ${String(view.level.day).padStart(2, "0")} · ${view.level.name}`;
+  byId("journalBar").style.width = `${(view.solved.length / view.level.puzzles.length) * 100}%`;
+  byId("clueList").innerHTML = view.level.puzzles.map((puzzle, index) => { const solved = view.solved.includes(puzzle.id); const current = view.currentPuzzle?.id === puzzle.id; return `<div class="clue-row ${solved ? "solved" : current ? "current" : "locked"}"><i>${solved ? puzzle.symbol : index + 1}</i><div><b>${puzzle.title}</b><small>${solved ? `${puzzle.symbol}＝${puzzle.rewardDigit} · ${puzzle.rewardItem}` : current ? puzzle.prompt : "先完成上一条推理"}</small></div><span>${solved ? "✓" : current ? "→" : "·"}</span></div>`; }).join("");
+  byId("sideList").innerHTML = view.level.sideTasks.map((side) => `<div class="side-row ${view.sideTasks.includes(side.id) ? "done" : ""}"><i>${side.icon}</i><span><b>${side.title}</b><small>${view.sideTasks.includes(side.id) ? side.completeText : side.prompt}</small></span></div>`).join("");
+  const save = game.getSave();
+  byId("stampList").innerHTML = LEVELS.map((level) => `<span class="${save.completed.includes(level.id) ? "earned" : ""}" title="${level.name}">${save.completed.includes(level.id) ? level.stamp : "？"}</span>`).join("");
 }
 
-function renderCodeProgress() {
-  document.querySelectorAll<HTMLElement>("[data-code-index]").forEach((item) => {
-    item.classList.toggle("remembered", Number(item.dataset.codeIndex) < codeInput.value.length);
-  });
+function renderFieldHint() {
+  if (!currentView) return;
+  const puzzle = currentView.currentPuzzle;
+  const button = byId<HTMLButtonElement>("fieldHintButton");
+  const hintText = byId("fieldHint");
+  if (!puzzle) { button.hidden = true; hintText.hidden = false; hintText.textContent = `终点顺序：${currentView.level.finalSymbolOrder.join(" → ")}。数字对应关系在随身日志里。`; return; }
+  button.hidden = false;
+  const stage = fieldHintStages.get(puzzle.id) ?? 0;
+  button.querySelector("span")!.textContent = `${Math.min(stage + 1, 3)}/3`;
+  hintText.hidden = stage === 0;
+  hintText.textContent = stage > 0 ? puzzle.hints[stage - 1] : "";
 }
 
-function submitCode() {
-  if (!game.submitCode(codeInput.value)) {
-    codeInput.classList.remove("shake");
-    void codeInput.offsetWidth;
-    codeInput.classList.add("shake");
-    window.setTimeout(() => {
-      codeInput.value = "";
-      renderCodeProgress();
-    }, 520);
-  }
+function openPuzzle(puzzle: PuzzleSpec) {
+  activePuzzle = puzzle; sequenceInput = []; patternInput = Array.from({ length: puzzle.slots ?? puzzle.solution.length }, () => puzzle.options[0] ?? ""); puzzleHintStage = 0;
+  byId("puzzleIcon").textContent = puzzle.icon; byId("puzzleType").textContent = puzzle.kind.toUpperCase(); byId("puzzleTitle").textContent = puzzle.title; byId("puzzleStory").textContent = puzzle.story;
+  byId("evidenceList").innerHTML = puzzle.evidence.map((line, index) => `<p><span>${index + 1}</span>${line}</p>`).join("");
+  byId("puzzleInstruction").textContent = puzzle.instruction; byId("puzzleFeedback").textContent = ""; byId("puzzleHintText").textContent = "提示会逐层从“注意什么”推进到“具体怎么做”。"; byId("puzzleHintButton").innerHTML = "拆开一层提示 <span>0 / 3</span>";
+  renderPuzzleControls(); showOverlay(puzzleOverlay); audio.play({ id: "ui.drawer.open" });
 }
 
-document.querySelectorAll<HTMLButtonElement>("[data-digit]").forEach((button) => button.addEventListener("click", () => addDigit(button.dataset.digit ?? "")));
-element("[data-key='back']").addEventListener("click", () => {
-  codeInput.value = codeInput.value.slice(0, -1);
-  renderCodeProgress();
-});
-element("[data-key='enter']").addEventListener("click", submitCode);
-element("#codeSubmit").addEventListener("click", submitCode);
-element("#codeCancel").addEventListener("click", () => {
-  setOverlay(null);
-  game.cancelCode();
-});
+function renderPuzzleControls() {
+  if (!activePuzzle) return;
+  const controls = byId("puzzleControls"); const puzzle = activePuzzle;
+  if (puzzle.kind === "sequence") controls.innerHTML = `<div class="sequence-track">${puzzle.solution.map((_, index) => `<span>${sequenceInput[index] ?? index + 1}</span>`).join("")}</div><div class="option-grid">${puzzle.options.map((option) => `<button data-option="${option}" ${sequenceInput.includes(option) ? "disabled" : ""}>${option}</button>`).join("")}</div><button class="small-reset" data-reset>重新排序</button>`;
+  else if (puzzle.kind === "choice") controls.innerHTML = `<div class="choice-grid">${puzzle.options.map((option, index) => `<button data-option="${option}"><i>${String.fromCharCode(65 + index)}</i>${option}</button>`).join("")}</div>`;
+  else if (puzzle.kind === "pattern") controls.innerHTML = `<div class="pattern-grid">${patternInput.map((value, index) => `<button data-slot="${index}"><small>${index + 1}</small><b>${value}</b><span>点击切换</span></button>`).join("")}</div><button class="check-action" data-check>检查规律</button>`;
+  else { controls.innerHTML = `<div class="number-solve"><input id="puzzleNumber" inputmode="numeric" maxlength="3" placeholder="?" aria-label="谜题答案"><button data-check>确认答案</button></div>`; byId<HTMLInputElement>("puzzleNumber").focus(); }
+  controls.querySelectorAll<HTMLButtonElement>("[data-option]").forEach((button) => button.addEventListener("click", () => handleOption(button.dataset.option ?? "")));
+  controls.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => button.addEventListener("click", () => { if (!activePuzzle) return; const index = Number(button.dataset.slot); const current = activePuzzle.options.indexOf(patternInput[index]); patternInput[index] = activePuzzle.options[(current + 1) % activePuzzle.options.length]; audio.play({ id: "puzzle.partial" }); renderPuzzleControls(); }));
+  controls.querySelector<HTMLButtonElement>("[data-reset]")?.addEventListener("click", () => { sequenceInput = []; renderPuzzleControls(); });
+  controls.querySelector<HTMLButtonElement>("[data-check]")?.addEventListener("click", checkPuzzle);
+  controls.querySelector<HTMLInputElement>("#puzzleNumber")?.addEventListener("keydown", (event) => { if (event.key === "Enter") checkPuzzle(); });
+}
 
-window.addEventListener("keydown", (event) => {
-  const key = event.key.toLowerCase();
-  if (modal === "code") {
-    if (/^\d$/.test(key)) addDigit(key);
-    if (key === "backspace") {
-      codeInput.value = codeInput.value.slice(0, -1);
-      renderCodeProgress();
-    }
-    if (key === "enter") submitCode();
-    if (key === "escape") {
-      setOverlay(null);
-      game.cancelCode();
-    }
+function handleOption(option: string) {
+  if (!activePuzzle) return;
+  if (activePuzzle.kind === "choice") { if (option === activePuzzle.solution[0]) finishPuzzle(); else puzzleWrong(); return; }
+  const expected = activePuzzle.solution[sequenceInput.length];
+  if (option !== expected) { sequenceInput = []; puzzleWrong(); renderPuzzleControls(); return; }
+  sequenceInput.push(option); audio.play({ id: "puzzle.partial", caption: `步骤 ${sequenceInput.length} 正确` });
+  if (sequenceInput.length === activePuzzle.solution.length) finishPuzzle(); else renderPuzzleControls();
+}
+
+function checkPuzzle() {
+  if (!activePuzzle) return;
+  const correct = activePuzzle.kind === "pattern" ? patternInput.every((value, index) => value === activePuzzle?.solution[index]) : byId<HTMLInputElement>("puzzleNumber").value.trim() === activePuzzle.solution[0];
+  if (correct) finishPuzzle(); else puzzleWrong();
+}
+function puzzleWrong() { if (!activePuzzle) return; byId("puzzleFeedback").textContent = activePuzzle.wrongFeedback; byId("puzzleFeedback").className = "puzzle-feedback wrong"; audio.play({ id: "puzzle.reset", caption: "这次推理没有对上" }); }
+function finishPuzzle() { if (!activePuzzle) return; const solved = activePuzzle; byId("puzzleFeedback").textContent = solved.solvedText; byId("puzzleFeedback").className = "puzzle-feedback correct"; window.setTimeout(() => { hideOverlay(puzzleOverlay); game.solvePuzzle(solved.id); game.setPaused(false); activePuzzle = null; }, 650); }
+
+function openCode(level: LevelDefinition) { byId("codeOrder").innerHTML = level.finalSymbolOrder.map((symbol, index) => `<span><small>${index + 1}</small><b>${symbol}</b><i>查日志</i></span>`).join(""); byId<HTMLInputElement>("codeInput").value = ""; byId("codeFeedback").textContent = ""; showOverlay(codeOverlay); }
+function openComplete(level: LevelDefinition, view: CampaignView) { hideOverlay(codeOverlay); byId("completeStamp").textContent = level.stamp; byId("completeTitle").textContent = `${level.name} · 今天走完了`; byId("completeEnding").textContent = level.ending; byId("completeStats").innerHTML = `<span><b>${view.solved.length}/4</b>主线</span><span><b>${view.sideTasks.length}/2</b>小事</span><span><b>${view.deaths}</b>次重来</span><span><b>${view.hintsUsed}</b>层提示</span>`; const next = byId<HTMLButtonElement>("nextLevelButton"); next.hidden = level.day === LEVELS.length; next.textContent = level.day === LEVELS.length ? "" : `进入 DAY ${String(level.day + 1).padStart(2, "0")} →`; showOverlay(completeOverlay); }
+
+function openDrawer() { drawer.classList.add("open"); drawer.setAttribute("aria-hidden", "false"); byId("menuButton").setAttribute("aria-expanded", "true"); game.setPaused(true); audio.play({ id: "ui.drawer.open" }); }
+function closeDrawer() { drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true"); byId("menuButton").setAttribute("aria-expanded", "false"); if (![campaignOverlay, puzzleOverlay, codeOverlay, deathOverlay, completeOverlay].some((overlay) => !overlay.hidden && overlay.classList.contains("active"))) game.setPaused(false); audio.play({ id: "ui.drawer.close" }); }
+
+byId("menuButton").addEventListener("click", () => drawer.classList.contains("open") ? closeDrawer() : openDrawer());
+byId("drawerClose").addEventListener("click", closeDrawer);
+byId("objectiveButton").addEventListener("click", () => { const guide = byId("guideCard"); const hidden = guide.classList.toggle("collapsed"); byId("objectiveButton").setAttribute("aria-expanded", String(!hidden)); });
+byId("fieldHintButton").addEventListener("click", () => { const puzzle = currentView?.currentPuzzle; if (!puzzle) return; const old = fieldHintStages.get(puzzle.id) ?? 0; const next = Math.min(3, old + 1); if (next > old) game.registerHint(); fieldHintStages.set(puzzle.id, next); renderFieldHint(); audio.play({ id: "puzzle.partial" }); });
+byId("puzzleHintButton").addEventListener("click", () => { if (!activePuzzle) return; const old = puzzleHintStage; puzzleHintStage = Math.min(3, puzzleHintStage + 1); if (puzzleHintStage > old) game.registerHint(); byId("puzzleHintText").textContent = activePuzzle.hints[puzzleHintStage - 1]; byId("puzzleHintButton").innerHTML = `拆开一层提示 <span>${puzzleHintStage} / 3</span>`; audio.play({ id: "puzzle.partial" }); });
+byId("puzzleClose").addEventListener("click", () => { hideOverlay(puzzleOverlay); activePuzzle = null; game.setPaused(false); });
+byId("codeClose").addEventListener("click", () => { hideOverlay(codeOverlay); game.setPaused(false); });
+byId("restartButton").addEventListener("click", () => { hideOverlay(deathOverlay); game.restartAfterDeath(); });
+byId("nextLevelButton").addEventListener("click", () => { const nextIndex = Math.min(LEVELS.length - 1, (currentView?.levelIndex ?? 0) + 1); hideOverlay(completeOverlay); selectedLevel = nextIndex; game.startLevel(nextIndex); renderCampaign(); });
+byId("backCampaignButton").addEventListener("click", () => { hideOverlay(completeOverlay); renderCampaign(); showOverlay(campaignOverlay); game.setPaused(true); });
+byId("campaignButton").addEventListener("click", () => { closeDrawer(); renderCampaign(); showOverlay(campaignOverlay); game.setPaused(true); });
+byId("saveButton").addEventListener("click", () => { const saved = game.saveNow(); byId("saveStatus").textContent = `已保存 · ${saved.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`; showToast("生活日志已保存。", "success"); });
+let resetArmed = false;
+byId("resetSaveButton").addEventListener("click", () => {
+  const button = byId<HTMLButtonElement>("resetSaveButton");
+  if (!resetArmed) {
+    resetArmed = true;
+    button.textContent = "再次点击，确认清空";
+    window.setTimeout(() => { resetArmed = false; button.textContent = "重置全部战役进度"; }, 4000);
     return;
   }
-  if (!modal && (key === "b" || key === "escape")) {
-    event.preventDefault();
-    drawerOpen ? closeDrawer() : openDrawer();
-  }
+  game.resetCampaignSave();
+  resetArmed = false;
+  button.textContent = "重置全部战役进度";
+  selectedLevel = 0;
+  closeDrawer();
+  renderCampaign();
+  showOverlay(campaignOverlay);
+  game.setPaused(true);
+  showToast("战役进度已重置。", "success");
 });
 
-window.addEventListener("pointerup", () => {
-  (["up", "down", "left", "right"] as Direction[]).forEach((direction) => game.setMovement(direction, false));
-});
+document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("active", item === button)); document.querySelectorAll<HTMLElement>("[data-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === button.dataset.tab)); audio.play({ id: "ui.click.soft" }); }));
+document.querySelectorAll<HTMLButtonElement>("[data-digit]").forEach((button) => button.addEventListener("click", () => { const input = byId<HTMLInputElement>("codeInput"); if (input.value.length < 4) input.value += button.dataset.digit; audio.play({ id: "ui.click.soft" }); }));
+document.querySelector<HTMLButtonElement>("[data-key='back']")?.addEventListener("click", () => { const input = byId<HTMLInputElement>("codeInput"); input.value = input.value.slice(0, -1); });
+document.querySelector<HTMLButtonElement>("[data-key='enter']")?.addEventListener("click", () => { const input = byId<HTMLInputElement>("codeInput"); if (input.value.length < 4) { byId("codeFeedback").textContent = "口令需要四位。先按符号顺序查日志。"; return; } if (!game.submitFinal(input.value)) { byId("codeFeedback").textContent = "四个数字都见过，但排列顺序不对。先读门框符号，再查日志对应关系。"; input.select(); } });
 
-document.addEventListener("visibilitychange", () => audio.setSuspended(document.hidden));
-
-document.addEventListener("pointerdown", (event) => {
-  const button = (event.target as HTMLElement).closest("button");
-  if (!button || button.classList.contains("quick-slot")) return;
-  void audio.unlock().then(() => audio.play({ id: "ui.click.soft" }));
-});
-
-if (latestState?.completed) showToast("这一天已经完成过。你仍然可以再走一次。");
+byId("fullscreenButton").addEventListener("click", async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await gameFrame.requestFullscreen(); } catch { showToast("浏览器阻止了全屏，请在浏览器菜单中允许。", "danger"); } });
+document.addEventListener("fullscreenchange", () => { const full = document.fullscreenElement === gameFrame; byId("fullscreenButton").textContent = full ? "⤢" : "⛶"; byId("fullscreenButton").setAttribute("aria-label", full ? "退出全屏" : "进入全屏"); showToast(full ? "已进入全屏，按 Esc 可退出。" : "已退出全屏。", "success"); });
+const dangerAssist = byId<HTMLInputElement>("dangerAssist"); const reducedMotion = byId<HTMLInputElement>("reducedMotion");
+dangerAssist.addEventListener("change", () => game.setDangerAssist(dangerAssist.checked)); reducedMotion.addEventListener("change", () => game.setReducedMotion(reducedMotion.checked));
+const audioSettings = audio.getSettings();
+byId<HTMLInputElement>("soundCaptions").checked = audioSettings.captions; byId<HTMLInputElement>("monoAudio").checked = audioSettings.mono;
+byId<HTMLInputElement>("soundCaptions").addEventListener("change", (event) => audio.setCaptions((event.target as HTMLInputElement).checked)); byId<HTMLInputElement>("monoAudio").addEventListener("change", (event) => audio.setMono((event.target as HTMLInputElement).checked));
+document.querySelectorAll<HTMLInputElement>("[data-volume]").forEach((slider) => { const bus = slider.dataset.volume as "master" | AudioBus; slider.value = String(Math.round(audioSettings[bus] * 100)); const output = slider.parentElement?.querySelector("output"); if (output) output.textContent = `${slider.value}%`; slider.addEventListener("input", () => { const value = Number(slider.value) / 100; audio.setVolume(bus, value); if (output) output.textContent = `${slider.value}%`; }); });
+document.addEventListener("pointerdown", () => { void audio.unlock(); }, { once: true });
+renderCampaign();

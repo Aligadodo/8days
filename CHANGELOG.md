@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 - 2026-09-07
+
+- Replaced the single-level implementation with a data-driven eight-level campaign covering rain commute, late office, flower valley, rainbow falls, autumn river, mountain storm, snow station, and glowing underground river.
+- Added 32 authored main puzzles across sequence, conditional choice, pattern completion, and numeric deduction interactions.
+- Added two optional humane side tasks, two telegraphed hazards, four symbol-to-digit clue rewards, and a distinct ending to every level.
+- Reworked final passcodes into a second deduction: the exit supplies symbol order while the journal stores symbol-to-digit relationships.
+- Added a persistent objective card, progress count, action rationale, off-screen direction arrow, gold current-target outline, and H1–H3 optional hint ladder.
+- Added rule-specific wrong-answer feedback and retained discovered knowledge after death.
+- Added a campaign selector, sequential unlocking, per-level completion statistics, eight diary stamps, and the final phrase “好好生活，明天再见”.
+- Added campaign save format v2 for unlocks, completion, stamps, puzzle progress, side tasks, hints, and deaths.
+- Added true Fullscreen API support, fullscreen state feedback, strict 16:9 page sizing, 960×540 logical rendering, and a 2x non-smoothed Canvas buffer.
+- Consolidated inventory, journal, save, settings, audio, accessibility, and campaign return into the existing foldable menu.
+- Added runtime campaign validation for content budgets, dependency references, hint counts, pattern slots, and derived passcodes.
+
 ## 0.4.0 - 2026-09-07
 
 - Added a professional puzzle-authoring framework covering puzzle contracts, teaching curves, hint escalation, state recovery, and playtest metrics.
