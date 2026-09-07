@@ -1,5 +1,6 @@
 import { ACHIEVEMENTS, CLUES, DISCOVERIES, ITEMS, ITEM_ORDER, PASSCODE, VIEWPORT, WORLD } from "./content";
 import type { DeathInfo, Direction, GameHooks, ItemId, TaskView, ViewState } from "./types";
+import type { AudioEventId } from "../audio/AudioManager";
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Point = { x: number; y: number };
@@ -141,7 +142,11 @@ export class Game {
   private hoveredInteraction: string | null = null;
   private pointer = { x: 0, y: 0, visible: false, holding: false };
   private lastPointerRouteAt = 0;
+  private lastFootstepAt = 0;
   private isMoving = false;
+  private windHitThisCycle = false;
+  private windHits = 0;
+  private windEntered = false;
 
   constructor(canvas: HTMLCanvasElement, hooks: GameHooks) {
     this.canvas = canvas;
@@ -173,7 +178,7 @@ export class Game {
   start() {
     this.paused = false;
     this.lastFrame = performance.now();
-    this.hooks.onMessage("先去水磨坊看看。闪光的地方值得调查。");
+    this.hooks.onMessage("先看看停转的水轮。异常的地方会留下光边、动作和声音。");
     this.emitView();
   }
 
@@ -193,6 +198,7 @@ export class Game {
     this.selectedSlot = clamp(index, 0, ITEM_ORDER.length - 1);
     const id = ITEM_ORDER[this.selectedSlot];
     if (this.inventory.has(id)) this.hooks.onMessage(`已选择：${ITEMS[id].name}`);
+    this.sound("ui.click.soft");
     this.emitView();
   }
 
@@ -201,6 +207,7 @@ export class Game {
     const id = ITEM_ORDER[this.selectedSlot];
     if (!this.inventory.has(id)) {
       this.hooks.onMessage("这个格子还是空的。");
+      this.sound("interaction.blocked");
       return;
     }
     const nearby = this.nearestInteraction();
@@ -225,18 +232,30 @@ export class Game {
       : this.nearestInteraction();
     if (!id) {
       this.hooks.onMessage("这里没有需要调查的东西。四处走走看吧。");
+      this.sound("interaction.blocked");
       return;
     }
 
     switch (id) {
       case "mill":
-        this.collectClue(0);
+        if (this.clues.has(0)) {
+          this.hooks.onMessage("水槽仍然畅通。轮轴上的三枚金色木销，和记忆里的三声回响一致。");
+          this.sound("memory.wheel", INTERACTION_POINTS.mill);
+        } else if (!this.inventory.has("trowel")) {
+          this.hooks.onMessage("湿叶和淤泥堵住了水槽。这不是徒手能扒开的一团东西。");
+          this.sound("interaction.blocked", INTERACTION_POINTS.mill);
+        } else {
+          this.collectClue(0, false);
+          this.hooks.onMessage("用小铲疏通了水槽。水轮重新转动，木销清楚地敲了三下。〔咚、咚、咚〕");
+          this.sound("puzzle.mill.solve", INTERACTION_POINTS.mill, "水轮重新转动，木销从左侧敲了三下");
+        }
         break;
       case "trowel":
         if (this.inventory.has("trowel")) this.hooks.onMessage("旧木箱已经空了。");
         else {
           this.addItem("trowel");
-          this.hooks.onMessage("获得小铲。它可以清理上山路边的土堆。");
+          this.hooks.onMessage("获得小铲。湿叶、淤泥和松软土堆都可以试着清理。");
+          this.sound("item.pickup.tool", INTERACTION_POINTS.trowel);
         }
         break;
       case "postcard":
@@ -247,20 +266,31 @@ export class Game {
         this.addItem("ribbon");
         this.addItem("water");
         this.hooks.onMessage("收好了一条红丝带和半壶水。没有拿走别人的面包。");
+        this.sound("item.pickup.tool", INTERACTION_POINTS.picnic);
         break;
       case "windpost":
         if (this.windTied) this.hooks.onMessage("丝带清楚地显示着阵风方向。");
         else if (this.inventory.has("ribbon")) {
           this.windTied = true;
-          this.hooks.onMessage(`把丝带系好了。风来之前，它会先绷直。${this.awardAchievements("wind_reader")}`);
-        } else this.hooks.onMessage("光秃秃的风向杆很难看清。也许可以系点醒目的东西。");
+          this.elapsed = Math.floor(this.elapsed / 8) * 8 + 5.4;
+          this.lastDangerNotice = "";
+          this.hooks.onMessage("把丝带系好了。先站在围栏内看一次：横直、有风声时别走；垂落、安静时再通过。");
+          this.sound("puzzle.wind.teach", INTERACTION_POINTS.windpost, "丝带在左前方绷直，风声正在增强");
+        } else {
+          this.hooks.onMessage("光秃秃的风向杆很难看清。也许可以系点醒目的东西。");
+          this.sound("interaction.blocked", INTERACTION_POINTS.windpost);
+        }
         break;
       case "mound":
         if (this.moundCleared) this.hooks.onMessage("通往上层花田的小路已经清开了。");
         else if (this.inventory.has("trowel")) {
           this.moundCleared = true;
           this.hooks.onMessage("用小铲清开了松土，一条花田捷径出现了。");
-        } else this.hooks.onMessage("泥土很松，但徒手挖不开。水磨坊附近也许有工具。");
+          this.sound("puzzle.solve", INTERACTION_POINTS.mound);
+        } else {
+          this.hooks.onMessage("泥土很松，但徒手挖不开。水磨坊附近也许有工具。");
+          this.sound("interaction.blocked", INTERACTION_POINTS.mound);
+        }
         break;
       case "flowers":
         if (this.flowersWatered) this.hooks.onMessage("小花重新抬起头，钥匙在叶片间闪光。");
@@ -269,7 +299,11 @@ export class Game {
           this.inventory.delete("water");
           this.addItem("key");
           this.hooks.onMessage(`把最后一点水留给了小花。获得黄铜钥匙。${this.awardAchievements("kindness")}`);
-        } else this.hooks.onMessage("花瓣已经卷起来了。它们需要一点干净的水。");
+          this.sound("puzzle.solve", INTERACTION_POINTS.flowers, "四簇花依次抬起头，风铃响了四声");
+        } else {
+          this.hooks.onMessage("花瓣已经卷起来了。它们需要一点干净的水。");
+          this.sound("interaction.blocked", INTERACTION_POINTS.flowers);
+        }
         break;
       case "cottage":
         if (!this.clues.has(3)) {
@@ -278,10 +312,12 @@ export class Game {
         }
         if (!this.inventory.has("key")) {
           this.hooks.onMessage("门锁着。钥匙也许藏在花田真正需要照顾的地方。");
+          this.sound("interaction.blocked", INTERACTION_POINTS.cottage);
           return;
         }
         if (this.clues.size < CLUES.length) {
           this.hooks.onMessage(`门上的四个图案还缺 ${CLUES.length - this.clues.size} 个答案。`);
+          this.sound("interaction.blocked", INTERACTION_POINTS.cottage);
           return;
         }
         this.paused = true;
@@ -290,16 +326,19 @@ export class Game {
       case "waystone":
         this.sideActions.add("waystone");
         this.hooks.onMessage(`旧路标：← 水磨坊 · ↑ 风口 · → 花田。${this.awardAchievements("wayfinder")}`);
+        this.sound("task.complete", INTERACTION_POINTS.waystone);
         break;
       case "bench":
         this.sideActions.add("bench");
         this.hooks.onMessage(`你坐了一会儿。河水走得很快，但下午没有。${this.awardAchievements("slow_afternoon")}`);
+        this.sound("task.complete", INTERACTION_POINTS.bench);
         break;
       case "spring":
         if (this.inventory.has("water")) this.hooks.onMessage("水壶已经装满了。泉水很凉，留一点给后来的人。");
         else {
           this.addItem("water");
           this.hooks.onMessage("在石泉装了一壶干净的水。这里是水壶的另一种补给方式。");
+          this.sound("item.pickup.tool", INTERACTION_POINTS.spring);
         }
         break;
       case "hive":
@@ -307,6 +346,7 @@ export class Game {
         else {
           this.sideActions.add("hive");
           this.hooks.onMessage(`花开后，蜜蜂终于沿着金色小路飞回蜂箱。${this.awardAchievements("hive_keeper")}`);
+          this.sound("task.complete", INTERACTION_POINTS.hive);
         }
         break;
       default:
@@ -320,13 +360,15 @@ export class Game {
 
   submitCode(value: string) {
     if (value !== PASSCODE) {
-      this.hooks.onMessage("顺序不对。看看日志里四个图案的排列。");
+      this.hooks.onMessage("顺序不对。门框从左到右是：水轮、茶杯、花信、屋檐。");
+      this.sound("puzzle.reset", INTERACTION_POINTS.cottage);
       return false;
     }
     this.completed = true;
     this.awardAchievements("remembered_day");
     if (["waystone", "bench", "hive"].every((task) => this.sideActions.has(task))) this.awardAchievements("unhurried_day");
     this.save();
+    this.sound("puzzle.solve", INTERACTION_POINTS.cottage, "门锁发出清脆的四音回响，门开了");
     this.hooks.onComplete();
     this.emitView();
     return true;
@@ -345,6 +387,9 @@ export class Game {
     this.moundCleared = false;
     this.flowersWatered = false;
     this.windTied = false;
+    this.windHitThisCycle = false;
+    this.windHits = 0;
+    this.windEntered = false;
     this.branchTriggeredAt = null;
     this.branchFallen = false;
     this.cancelNavigation();
@@ -493,6 +538,10 @@ export class Game {
     } else {
       this.followNavigation(dt);
     }
+    if (this.isMoving && now - this.lastFootstepAt > 310) {
+      this.lastFootstepAt = now;
+      this.sound(this.footstepEvent());
+    }
 
     this.camera.x += (clamp(this.player.x - VIEWPORT.width / 2, 0, WORLD.width - VIEWPORT.width) - this.camera.x) * Math.min(1, dt * 5);
     this.camera.y += (clamp(this.player.y - VIEWPORT.height / 2, 0, WORLD.height - VIEWPORT.height) - this.camera.y) * Math.min(1, dt * 5);
@@ -540,6 +589,7 @@ export class Game {
     const route = this.findPath(this.playerCenter(), destination);
     if (!route.length) {
       if (announceFailure) this.hooks.onMessage("那里走不过去，换个位置试试。");
+      if (announceFailure) this.sound("nav.route.blocked");
       this.navigationPath = [];
       this.navigationTarget = null;
       this.pendingInteraction = null;
@@ -547,6 +597,7 @@ export class Game {
     }
     this.navigationPath = route;
     this.navigationTarget = route[route.length - 1];
+    if (announceFailure) this.sound("nav.route.accept");
   }
 
   private queueInteraction(id: string) {
@@ -703,23 +754,47 @@ export class Game {
     const windPhase = this.elapsed % 8;
     const windWarning = windPhase >= 5.35 && windPhase < 6.7;
     const windActive = windPhase >= 6.7;
-    if (inside(center, WIND_ZONE) && windWarning && this.lastDangerNotice !== "wind") {
+    const nearWind = center.x >= WIND_ZONE.x - 150 && center.x <= WIND_ZONE.x + WIND_ZONE.w + 150
+      && center.y >= WIND_ZONE.y - 120 && center.y <= WIND_ZONE.y + WIND_ZONE.h + 150;
+    if (nearWind && windWarning && this.lastDangerNotice !== "wind") {
       this.lastDangerNotice = "wind";
       this.hooks.onMessage(this.windTied ? "丝带突然绷直——阵风要来了！" : "整片花都弯下去了……快离开风口！");
+      this.sound("hazard.wind.warn", { x: WIND_ZONE.x + WIND_ZONE.w / 2, y: WIND_ZONE.y + WIND_ZONE.h / 2 }, "前方丝带绷直，阵风正在增强");
     }
-    if (!windWarning && !windActive && this.lastDangerNotice === "wind") this.lastDangerNotice = "";
-    if (inside(center, WIND_ZONE) && windActive && !this.windTied) {
-      this.die({
-        time: this.getViewState().time,
-        cause: "阵风把你吹下了花田边坡",
-        lesson: "风来之前，整片花会先弯下。系好丝带，或在阵风期间绕开高处。",
-      });
-      return;
+    if (!windWarning && !windActive) {
+      if (this.lastDangerNotice === "wind") this.lastDangerNotice = "";
+      this.windHitThisCycle = false;
+    }
+    if (inside(center, WIND_ZONE)) {
+      this.windEntered = true;
+      if (windActive && !this.windHitThisCycle) {
+        this.windHitThisCycle = true;
+        this.windHits += 1;
+        this.sound("hazard.wind.hit", center, "强风从前方掠过，把你吹回了安全侧");
+        if (this.windHits === 1) {
+          this.cancelNavigation();
+          this.player.y = WIND_ZONE.y + WIND_ZONE.h + 16;
+          this.hooks.onMessage("强风把你吹回了围栏外。第一次只是提醒：等丝带垂落、风声停下再走。");
+        } else {
+          this.die({
+            time: this.getViewState().time,
+            cause: "阵风把你吹下了花田边坡",
+            lesson: "丝带横直、花朵压低、风声增强时不要进入；等三种信号都平静再通过。",
+          });
+          return;
+        }
+      }
+    }
+    if (this.windEntered && this.windTied && center.y < WIND_ZONE.y - 8 && !this.achievements.has("wind_reader")) {
+      const note = this.awardAchievements("wind_reader");
+      this.hooks.onMessage(`你在静风窗口穿过了花田。${note}`);
+      this.save();
     }
 
     if (!this.branchFallen && this.branchTriggeredAt === null && inside(center, BRANCH_ZONE)) {
       this.branchTriggeredAt = now;
       this.hooks.onMessage("树上传来一声轻响，地面的阴影正在变大！");
+      this.sound("hazard.branch.creak", { x: BRANCH_ZONE.x + BRANCH_ZONE.w / 2, y: BRANCH_ZONE.y }, "右侧树枝发出裂响，地面的阴影正在变大");
     }
     if (this.branchTriggeredAt !== null && !this.branchFallen && now - this.branchTriggeredAt > 1050) {
       if (inside(center, BRANCH_ZONE)) {
@@ -740,6 +815,7 @@ export class Game {
     this.paused = true;
     if (this.deaths >= 3) this.dangerAssist = true;
     this.save();
+    this.sound("player.death.soft");
     this.hooks.onDeath(info);
     this.emitView();
   }
@@ -761,14 +837,14 @@ export class Game {
   private interactionLabel(id: string | null) {
     if (!id) return null;
     const labels: Record<string, string> = {
-      mill: this.clues.has(0) ? "点击 / E 再看旧门牌" : "点击 / E 调查旧磨坊门牌",
+      mill: this.clues.has(0) ? "点击 / E 听听转动的水轮" : this.inventory.has("trowel") ? "点击 / E 用小铲疏通水槽" : "点击 / E 调查停转的水轮",
       trowel: this.inventory.has("trowel") ? "点击 / E 查看空木箱" : "点击 / E 拾取小铲",
       postcard: this.clues.has(2) ? "点击 / E 阅读明信片" : "点击 / E 拾起发光的明信片",
       picnic: this.clues.has(1) ? "点击 / E 查看野餐地" : "点击 / E 调查野餐便笺",
-      windpost: "点击 / E 调查风向杆",
+      windpost: this.windTied ? "点击 / E 对照丝带判断静风窗口" : "点击 / E 调查风向杆",
       mound: this.moundCleared ? "点击 / E 查看清开的路" : "点击 / E 清理土堆",
       flowers: "点击 / E 照料枯萎的小花",
-      cottage: this.clues.has(3) ? "点击 / E 尝试打开小屋" : "点击 / E 调查山顶门牌",
+      cottage: this.clues.has(3) ? "点击 / E 按门框图案尝试开门" : "点击 / E 观察门前归家脚印",
       waystone: this.sideActions.has("waystone") ? "点击 / E 重读旧路标" : "点击 / E 读懂旧路标",
       bench: this.sideActions.has("bench") ? "点击 / E 再坐一会儿" : "点击 / E 在河边长椅休息",
       spring: this.inventory.has("water") ? "点击 / E 看看清泉" : "点击 / E 装一壶泉水",
@@ -800,6 +876,7 @@ export class Game {
     if (this.discoveries.size >= 3) thresholdAchievements.push("field_notes");
     if (this.discoveries.size === DISCOVERIES.length) thresholdAchievements.push("naturalist");
     this.hooks.onMessage(`图鉴新增 ${discovery.icon}「${discovery.title}」。${discovery.note}${this.awardAchievements(...thresholdAchievements)}`);
+    this.sound("item.pickup.clue", INTERACTION_POINTS[id]);
   }
 
   private awardAchievements(...ids: string[]) {
@@ -811,6 +888,7 @@ export class Game {
       this.achievements.add(id);
       unlocked.push(achievement.title);
     }
+    if (unlocked.length) this.sound("achievement.unlock");
     return unlocked.length ? ` · 解锁成就「${unlocked.join("」「")}」` : "";
   }
 
@@ -857,7 +935,7 @@ export class Game {
     ];
   }
 
-  private collectClue(id: number) {
+  private collectClue(id: number, playSound = true) {
     const clue = CLUES[id];
     if (this.clues.has(id)) {
       this.hooks.onMessage(`${clue.title}：数字 ${clue.digit}。${clue.memory}`);
@@ -866,6 +944,7 @@ export class Game {
     this.clues.add(id);
     this.save();
     this.hooks.onMessage(`记住了 ${clue.icon} 的数字：${clue.digit}。${clue.memory}`);
+    if (playSound) this.sound("item.pickup.clue", INTERACTION_POINTS[this.clueInteraction(id)]);
   }
 
   private addItem(id: ItemId) {
@@ -874,12 +953,30 @@ export class Game {
 
   private objective() {
     if (this.completed) return "这一天已经好好度过";
-    if (!this.clues.has(0) || !this.inventory.has("trowel")) return "调查水磨坊附近的闪光";
+    if (!this.inventory.has("trowel")) return "在水磨坊旁找到可以清淤的工具";
+    if (!this.clues.has(0)) return "用小铲疏通水轮旁的湿叶和淤泥";
     if (!this.clues.has(1) || !this.inventory.has("water")) return "越过石桥，寻找野餐地";
     if (!this.moundCleared) return "用小铲清理上山土堆";
     if (!this.flowersWatered) return "把水留给枯萎的花";
     if (this.clues.size < CLUES.length) return "找齐四段生活线索";
     return "带着钥匙前往山顶小屋";
+  }
+
+  private clueInteraction(id: number) {
+    return ["mill", "picnic", "postcard", "cottage"][id] ?? "mill";
+  }
+
+  private footstepEvent(): AudioEventId {
+    const center = this.playerCenter();
+    const riverCenter = this.riverCenter(center.y);
+    if (center.y >= 493 && center.y <= 569 && Math.abs(center.x - riverCenter) < 140) return "footstep.wood";
+    if (center.y < 430 || (center.x > 1000 && center.y < 650)) return "footstep.stone";
+    return "footstep.grass";
+  }
+
+  private sound(id: AudioEventId, source?: Point, caption?: string) {
+    const pan = source ? clamp((source.x - this.playerCenter().x) / (VIEWPORT.width * 0.42), -1, 1) : 0;
+    this.hooks.onAudio({ id, pan, caption });
   }
 
   private playerCenter() {
@@ -1342,7 +1439,8 @@ export class Game {
     ctx.fillRect(268, 630, 52, 42);
     ctx.fillStyle = "#40301f";
     ctx.fillRect(414, 632, 18, 116);
-    const angle = this.reducedMotion ? 0 : now / 1800;
+    const running = this.clues.has(0);
+    const angle = this.reducedMotion || !running ? 0 : now / 920;
     ctx.save();
     ctx.translate(423, 630);
     ctx.rotate(angle);
@@ -1354,9 +1452,19 @@ export class Game {
     ctx.fillRect(416, 623, 14, 14);
     ctx.fillStyle = "#253c39";
     ctx.fillRect(388, 702, 46, 35);
-    ctx.fillStyle = "#f2d078";
-    ctx.font = "bold 18px monospace";
-    ctx.fillText("3", 404, 727);
+    if (running) {
+      ctx.fillStyle = "#f2d078";
+      for (let index = 0; index < 3; index += 1) ctx.fillRect(398 + index * 11, 716, 7, 7);
+      ctx.fillStyle = "#a8edf0";
+      ctx.fillRect(432, 676, 20, 4);
+      ctx.fillRect(436, 690, 25, 4);
+    } else {
+      ctx.fillStyle = "#705238";
+      ctx.fillRect(405, 742, 54, 11);
+      ctx.fillStyle = "#9e713d";
+      ctx.fillRect(414, 735, 13, 9);
+      ctx.fillRect(436, 738, 16, 9);
+    }
   }
 
   private drawCottage() {
@@ -1374,9 +1482,16 @@ export class Game {
     ctx.fillRect(1454, 135, 38, 35);
     ctx.fillStyle = "#29433c";
     ctx.fillRect(1331, 216, 32, 34);
-    ctx.fillStyle = "#f2d078";
-    ctx.font = "bold 17px monospace";
-    ctx.fillText("2", 1342, 239);
+    // Two pairs of footprints replace the literal door number. The clue comes
+    // from observing two people returning home, not reading a printed digit.
+    ctx.fillStyle = "#8b6745";
+    for (const footprint of [
+      { x: 1341, y: 248 }, { x: 1352, y: 258 },
+      { x: 1378, y: 250 }, { x: 1389, y: 260 },
+    ]) {
+      ctx.fillRect(footprint.x, footprint.y, 7, 11);
+      ctx.fillRect(footprint.x + 2, footprint.y - 3, 5, 4);
+    }
   }
 
   private drawPicnic() {
@@ -1401,10 +1516,15 @@ export class Game {
     ctx.fillRect(762, 304, 46, 8);
     if (this.windTied) {
       const windPhase = this.elapsed % 8;
-      const length = windPhase > 5.35 ? 50 : 28;
       ctx.fillStyle = "#ef5966";
-      ctx.fillRect(788, 315, length, 8);
-      ctx.fillRect(788 + length - 8, 323, 8, 8);
+      if (windPhase > 5.35) {
+        const length = windPhase >= 6.7 ? 58 : 46;
+        ctx.fillRect(788, 315, length, 8);
+        ctx.fillRect(788 + length - 8, 323, 8, 8);
+      } else {
+        ctx.fillRect(788, 315, 11, 8);
+        ctx.fillRect(795, 320, 8, 28);
+      }
     }
   }
 

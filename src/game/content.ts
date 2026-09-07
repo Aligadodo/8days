@@ -44,31 +44,31 @@ export const ITEMS: Record<ItemId, ItemDefinition> = {
 export const CLUES: ClueDefinition[] = [
   {
     id: 0,
-    icon: "水磨坊",
-    title: "旧磨坊门牌",
+    icon: "水轮",
+    title: "水轮的三次回响",
     digit: "3",
-    memory: "水声让人想起，小时候的下午总比现在漫长。",
+    memory: "疏通水槽后，木销敲了三下。普通的劳动，也会留下回声。",
   },
   {
     id: 1,
-    icon: "野餐布",
-    title: "一人份便笺",
+    icon: "茶杯",
+    title: "留下的一只杯子",
     digit: "1",
     memory: "一个人的野餐，也可以认真摆好杯子和面包。",
   },
   {
     id: 2,
-    icon: "明信片",
-    title: "四月明信片",
+    icon: "花信",
+    title: "四月的花信",
     digit: "4",
     memory: "寄信的人写道：花开的时候，不要只顾着赶路。",
   },
   {
     id: 3,
-    icon: "小屋",
-    title: "山顶门牌",
+    icon: "屋檐",
+    title: "两组归家脚印",
     digit: "2",
-    memory: "门口一直留着两双拖鞋，一双给回家的人。",
+    memory: "两组脚印都朝着门里。屋檐一直给回家的人留着位置。",
   },
 ];
 

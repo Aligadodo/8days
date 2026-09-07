@@ -1,3 +1,5 @@
+import type { AudioCue } from "../audio/AudioManager";
+
 export type Direction = "up" | "down" | "left" | "right";
 
 export type ItemId = "journal" | "trowel" | "ribbon" | "water" | "key";
@@ -68,4 +70,5 @@ export interface GameHooks {
   onDeath: (info: DeathInfo) => void;
   onCodeRequest: () => void;
   onComplete: () => void;
+  onAudio: (cue: AudioCue) => void;
 }

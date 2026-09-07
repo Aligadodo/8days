@@ -1,4 +1,5 @@
 import "./style.css";
+import { AudioManager, type AudioBus, type AudioEventId } from "./audio/AudioManager";
 import { ACHIEVEMENTS, CLUES, DISCOVERIES, ITEMS, ITEM_ORDER, PASSCODE } from "./game/content";
 import { Game } from "./game/Game";
 import type { DeathInfo, Direction, ViewState } from "./game/types";
@@ -10,7 +11,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span class="wordmark-flower">✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · PLAYABLE PROTOTYPE</small></div></div>
-      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.3</div>
+      <div class="prototype-chip"><i></i> 春日花谷 · 原型 0.4</div>
     </header>
 
     <section class="game-frame" aria-label="春日花谷游戏区域">
@@ -25,6 +26,7 @@ app.innerHTML = `
 
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
       <div id="interactionPrompt" class="interaction-prompt" hidden></div>
+      <div id="soundCaption" class="sound-caption" role="status" aria-live="polite" hidden></div>
 
       <div id="quickbar" class="quickbar" aria-label="快捷物品栏"></div>
 
@@ -71,6 +73,15 @@ app.innerHTML = `
         <section class="drawer-panel" data-panel="settings">
           <label class="setting-row"><div><b>加强危险轮廓</b><small>为风口和坠落区域增加红色边界</small></div><input id="dangerAssist" type="checkbox" /></label>
           <label class="setting-row"><div><b>减少动态效果</b><small>减弱水流、花朵和角色晃动</small></div><input id="reducedMotion" type="checkbox" /></label>
+          <div class="audio-settings">
+            <div class="setting-section-title"><b>声音</b><small>音乐负责情绪，环境声负责空间</small></div>
+            <label class="volume-row"><span>主音量</span><input data-audio-volume="master" type="range" min="0" max="100" step="5" /><output></output></label>
+            <label class="volume-row"><span>音乐</span><input data-audio-volume="music" type="range" min="0" max="100" step="5" /><output></output></label>
+            <label class="volume-row"><span>效果</span><input data-audio-volume="effects" type="range" min="0" max="100" step="5" /><output></output></label>
+            <label class="volume-row"><span>环境</span><input data-audio-volume="ambience" type="range" min="0" max="100" step="5" /><output></output></label>
+            <label class="setting-row compact"><div><b>重要声音字幕</b><small>显示谜题和危险声音的方向</small></div><input id="soundCaptions" type="checkbox" /></label>
+            <label class="setting-row compact"><div><b>单声道</b><small>取消左右声像，保留视觉方向提示</small></div><input id="monoAudio" type="checkbox" /></label>
+          </div>
           <div class="signal-legend"><b>世界光边</b><span><i class="story"></i>主线</span><span><i class="utility"></i>工具</span><span><i class="optional"></i>小事</span><span><i class="discovery"></i>观察</span></div>
           <div class="controls-list"><b>操作方式</b><span><kbd>左键</kbd> 点地移动，按住可持续跟随</span><span><kbd>左键</kbd> 点击闪光物，自动走近调查</span><span><kbd>右键</kbd> 取消移动　<kbd>B</kbd> 背包</span><span><kbd>WASD</kbd> 备用移动　<kbd>E</kbd> 调查</span></div>
         </section>
@@ -102,8 +113,9 @@ app.innerHTML = `
       <div class="overlay" data-overlay="code" hidden>
         <div class="code-card">
           <p class="eyebrow">THE COTTAGE DOOR</p>
-          <h2>今天的四个数字</h2>
-          <div class="code-order"><span>水磨坊</span><span>野餐布</span><span>明信片</span><span>小屋</span></div>
+          <h2>让门想起今天</h2>
+          <p class="code-hint">按门框从左到右的图案，把日志里的四段记忆放回原位。</p>
+          <div class="code-order"><span data-code-index="0"><i>◉</i>水轮</span><span data-code-index="1"><i>杯</i>茶杯</span><span data-code-index="2"><i>✿</i>花信</span><span data-code-index="3"><i>⌂</i>屋檐</span></div>
           <input id="codeInput" inputmode="numeric" maxlength="4" readonly aria-label="四位通关口令" />
           <div class="keypad" aria-label="数字键盘">${[1,2,3,4,5,6,7,8,9].map((n) => `<button data-digit="${n}">${n}</button>`).join("")}<button data-key="back">←</button><button data-digit="0">0</button><button data-key="enter">✓</button></div>
           <div class="code-actions"><button id="codeCancel">再想想</button><button id="codeSubmit">确认口令</button></div>
@@ -122,7 +134,7 @@ app.innerHTML = `
       </div>
     </section>
 
-    <footer class="site-footer"><span><kbd>左键</kbd> 点击移动 / 调查　<kbd>右键</kbd> 取消　<kbd>WASD</kbd> 备用</span><span>原型目标：找到 4 个数字并抵达山顶小屋</span></footer>
+    <footer class="site-footer"><span><kbd>左键</kbd> 点击移动 / 调查　<kbd>右键</kbd> 取消　<kbd>WASD</kbd> 备用</span><span>原型目标：理解环境规律，解开 4 段生活线索</span></footer>
   </main>
 `;
 
@@ -136,6 +148,7 @@ const canvas = element<HTMLCanvasElement>("#gameCanvas");
 const timeValue = element("#timeValue");
 const objectiveValue = element("#objectiveValue");
 const prompt = element("#interactionPrompt");
+const soundCaption = element("#soundCaption");
 const quickbar = element("#quickbar");
 const inventoryGrid = element("#inventoryGrid");
 const taskList = element("#taskList");
@@ -152,8 +165,11 @@ const drawer = element("#drawer");
 const menuButton = element<HTMLButtonElement>("#menuButton");
 const dangerAssist = element<HTMLInputElement>("#dangerAssist");
 const reducedMotion = element<HTMLInputElement>("#reducedMotion");
+const soundCaptions = element<HTMLInputElement>("#soundCaptions");
+const monoAudio = element<HTMLInputElement>("#monoAudio");
 const codeInput = element<HTMLInputElement>("#codeInput");
 let toastTimer = 0;
+let captionTimer = 0;
 let modal: "intro" | "death" | "code" | "complete" | null = "intro";
 let latestState: ViewState | undefined;
 let drawerOpen = false;
@@ -164,6 +180,23 @@ function showToast(message: string) {
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 4300);
 }
+
+function showSoundCaption(message: string, pan: number) {
+  const direction = pan < -0.22 ? "左侧" : pan > 0.22 ? "右侧" : "附近";
+  soundCaption.textContent = `〔${direction}：${message}〕`;
+  soundCaption.hidden = false;
+  soundCaption.classList.remove("visible");
+  void soundCaption.offsetWidth;
+  soundCaption.classList.add("visible");
+  window.clearTimeout(captionTimer);
+  captionTimer = window.setTimeout(() => {
+    soundCaption.classList.remove("visible");
+    soundCaption.hidden = true;
+  }, 3200);
+}
+
+const audio = new AudioManager(showSoundCaption);
+const initialAudioSettings = audio.getSettings();
 
 function setOverlay(name: typeof modal) {
   modal = name;
@@ -243,9 +276,11 @@ const game = new Game(canvas, {
   onCodeRequest: () => {
     closeDrawer(false);
     codeInput.value = "";
+    renderCodeProgress();
     setOverlay("code");
   },
   onComplete: () => setOverlay("complete"),
+  onAudio: (cue) => audio.play(cue),
 });
 
 function openDrawer() {
@@ -255,25 +290,34 @@ function openDrawer() {
   drawer.setAttribute("aria-hidden", "false");
   menuButton.setAttribute("aria-expanded", "true");
   game.setPaused(true);
+  audio.play({ id: "ui.drawer.open" });
 }
 
 function closeDrawer(resume = true) {
+  const wasOpen = drawerOpen;
   drawerOpen = false;
   drawer.classList.remove("open");
   drawer.setAttribute("aria-hidden", "true");
   menuButton.setAttribute("aria-expanded", "false");
   if (resume && !modal) game.setPaused(false);
+  if (wasOpen) audio.play({ id: "ui.drawer.close" });
 }
 
 element("#startButton").addEventListener("click", () => {
+  void audio.unlock().then(() => {
+    audio.startAmbience();
+    audio.play({ id: "music.spring.intro" });
+  });
   setOverlay(null);
   game.start();
 });
 element("#restartButton").addEventListener("click", () => {
+  audio.play({ id: "music.spring.intro" });
   setOverlay(null);
   game.restart();
 });
 element("#replayButton").addEventListener("click", () => {
+  audio.play({ id: "music.spring.intro" });
   setOverlay(null);
   game.restart();
 });
@@ -287,6 +331,23 @@ element("#saveButton").addEventListener("click", () => {
 });
 dangerAssist.addEventListener("change", () => game.setDangerAssist(dangerAssist.checked));
 reducedMotion.addEventListener("change", () => game.setReducedMotion(reducedMotion.checked));
+soundCaptions.checked = initialAudioSettings.captions;
+monoAudio.checked = initialAudioSettings.mono;
+soundCaptions.addEventListener("change", () => audio.setCaptions(soundCaptions.checked));
+monoAudio.addEventListener("change", () => audio.setMono(monoAudio.checked));
+
+document.querySelectorAll<HTMLInputElement>("[data-audio-volume]").forEach((input) => {
+  const bus = input.dataset.audioVolume as "master" | AudioBus;
+  const output = input.parentElement?.querySelector("output");
+  const value = Math.round(initialAudioSettings[bus] * 100);
+  input.value = String(value);
+  if (output) output.textContent = `${value}%`;
+  input.addEventListener("input", () => {
+    const next = Number(input.value);
+    audio.setVolume(bus, next / 100);
+    if (output) output.textContent = `${next}%`;
+  });
+});
 
 quickbar.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-slot]");
@@ -317,7 +378,17 @@ document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => 
 });
 
 function addDigit(digit: string) {
-  if (codeInput.value.length < PASSCODE.length) codeInput.value += digit;
+  if (codeInput.value.length >= PASSCODE.length) return;
+  const memoryEvents: AudioEventId[] = ["memory.wheel", "memory.cup", "memory.flower", "memory.home"];
+  audio.play({ id: memoryEvents[codeInput.value.length] });
+  codeInput.value += digit;
+  renderCodeProgress();
+}
+
+function renderCodeProgress() {
+  document.querySelectorAll<HTMLElement>("[data-code-index]").forEach((item) => {
+    item.classList.toggle("remembered", Number(item.dataset.codeIndex) < codeInput.value.length);
+  });
 }
 
 function submitCode() {
@@ -325,11 +396,18 @@ function submitCode() {
     codeInput.classList.remove("shake");
     void codeInput.offsetWidth;
     codeInput.classList.add("shake");
+    window.setTimeout(() => {
+      codeInput.value = "";
+      renderCodeProgress();
+    }, 520);
   }
 }
 
 document.querySelectorAll<HTMLButtonElement>("[data-digit]").forEach((button) => button.addEventListener("click", () => addDigit(button.dataset.digit ?? "")));
-element("[data-key='back']").addEventListener("click", () => { codeInput.value = codeInput.value.slice(0, -1); });
+element("[data-key='back']").addEventListener("click", () => {
+  codeInput.value = codeInput.value.slice(0, -1);
+  renderCodeProgress();
+});
 element("[data-key='enter']").addEventListener("click", submitCode);
 element("#codeSubmit").addEventListener("click", submitCode);
 element("#codeCancel").addEventListener("click", () => {
@@ -341,7 +419,10 @@ window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (modal === "code") {
     if (/^\d$/.test(key)) addDigit(key);
-    if (key === "backspace") codeInput.value = codeInput.value.slice(0, -1);
+    if (key === "backspace") {
+      codeInput.value = codeInput.value.slice(0, -1);
+      renderCodeProgress();
+    }
     if (key === "enter") submitCode();
     if (key === "escape") {
       setOverlay(null);
@@ -357,6 +438,14 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("pointerup", () => {
   (["up", "down", "left", "right"] as Direction[]).forEach((direction) => game.setMovement(direction, false));
+});
+
+document.addEventListener("visibilitychange", () => audio.setSuspended(document.hidden));
+
+document.addEventListener("pointerdown", (event) => {
+  const button = (event.target as HTMLElement).closest("button");
+  if (!button || button.classList.contains("quick-slot")) return;
+  void audio.unlock().then(() => audio.play({ id: "ui.click.soft" }));
 });
 
 if (latestState?.completed) showToast("这一天已经完成过。你仍然可以再走一次。");
