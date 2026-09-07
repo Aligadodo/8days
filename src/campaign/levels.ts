@@ -83,8 +83,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "call-home", icon: "☎", title: "借来的电话", position: point(800, 280), prompt: "告诉家里你正在走安全路线。", completeText: "电话那头只说：慢一点，不要急。" },
     ],
     hazards: [
-      { id: "live-water", title: "带电积水", rect: rect(785, 490, 180, 95), period: 8, warningFrom: 2.5, activeFrom: 5.2, warning: "水面出现蓝白电弧", lesson: "积水靠近电力设施时，不要涉水；先断电并绕行。", color: "#8fe8ff", disabledBy: "drain-order" },
-      { id: "falling-sign", title: "松动招牌", rect: rect(700, 215, 180, 95), period: 9, warningFrom: 3.8, activeFrom: 6.5, warning: "招牌吱呀摇晃，碎屑开始掉落", lesson: "大风暴雨时远离松动招牌和临时搭建物。", color: "#ffd25f" },
+      { id: "live-water", kind: "electric", title: "带电积水", rect: rect(785, 490, 180, 95), period: 8, warningFrom: 2.5, activeFrom: 5.2, warning: "水面出现蓝白电弧", lesson: "积水靠近电力设施时，不要涉水；先断电并绕行。", color: "#8fe8ff", disabledBy: "drain-order" },
+      { id: "falling-sign", kind: "sign", title: "松动招牌", rect: rect(814, 313, 112, 54), period: 9, warningFrom: 0, activeFrom: 1.5, warning: "头顶吱呀作响，招牌落灰——离开招牌下方！", lesson: "看到落灰、听见吱呀声时，立刻点击左右两侧的空地撤离。预警持续 1.5 秒，招牌随后落下；不要停在它的阴影里。", color: "#ffd25f" },
     ],
     landmarks: [
       { title: "老公寓", icon: "⌂", position: point(115, 710), size: 75 }, { title: "早餐铺", icon: "☕", position: point(300, 820), size: 56 },
@@ -158,8 +158,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "turn-off-screen", icon: "屏", title: "亮着的会议室", position: point(350, 235), prompt: "关闭无人会议室的屏幕和插座。", completeText: "蓝光熄灭，窗外的月亮清楚了一点。" },
     ],
     hazards: [
-      { id: "ceiling", title: "松动吊顶", rect: rect(450, 450, 140, 105), period: 8.5, warningFrom: 3, activeFrom: 6, warning: "吊顶灰尘簌簌落下", lesson: "火灾和漏水后应避开变形、掉粉的吊顶区域。", color: "#ffcf79" },
-      { id: "smoke", title: "浓烟走廊", rect: rect(960, 590, 150, 90), period: 7.5, warningFrom: 2, activeFrom: 4.8, warning: "烟层正在降低", lesson: "烟雾中保持低姿，沿安全指示尽快离开，不要折返。", color: "#c8c5d3" },
+      { id: "ceiling", kind: "falling", title: "松动吊顶", rect: rect(450, 450, 140, 105), period: 8.5, warningFrom: 3, activeFrom: 6, warning: "吊顶灰尘簌簌落下", lesson: "火灾和漏水后应避开变形、掉粉的吊顶区域。", color: "#ffcf79" },
+      { id: "smoke", kind: "smoke", title: "浓烟走廊", rect: rect(960, 590, 150, 90), period: 7.5, warningFrom: 2, activeFrom: 4.8, warning: "烟层正在降低", lesson: "烟雾中保持低姿，沿安全指示尽快离开，不要折返。", color: "#c8c5d3" },
     ],
     landmarks: [
       { title: "开放工位", icon: "桌", position: point(145, 200), size: 70 }, { title: "会议室", icon: "会", position: point(620, 250), size: 65 },
@@ -233,8 +233,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "bee", icon: "蜂", title: "迷路的小蜂", position: point(1450, 560), prompt: "把它引向开花更密的山坡。", completeText: "小蜂绕你一圈，钻进花海。" },
     ],
     hazards: [
-      { id: "wind", title: "山谷强风", rect: rect(860, 425, 155, 105), period: 8, warningFrom: 2.5, activeFrom: 5.7, warning: "草尖齐齐伏向一边，风铃急响", lesson: "强风前会有一致的环境征兆；躲到岩石背风面再前进。", color: "#fff49b" },
-      { id: "branch", title: "枯枝坠落", rect: rect(1175, 455, 120, 90), period: 9.5, warningFrom: 4, activeFrom: 7, warning: "树冠晃动，木屑落到小路", lesson: "听见树木断裂声或看见碎屑时，立即离开树冠下方。", color: "#ffd073" },
+      { id: "wind", kind: "wind", title: "山谷强风", rect: rect(860, 425, 155, 105), period: 8, warningFrom: 2.5, activeFrom: 5.7, warning: "草尖齐齐伏向一边，风铃急响", lesson: "强风前会有一致的环境征兆；躲到岩石背风面再前进。", color: "#fff49b" },
+      { id: "branch", kind: "falling", title: "枯枝坠落", rect: rect(1175, 455, 120, 90), period: 9.5, warningFrom: 4, activeFrom: 7, warning: "树冠晃动，木屑落到小路", lesson: "听见树木断裂声或看见碎屑时，立即离开树冠下方。", color: "#ffd073" },
     ],
     landmarks: [
       { title: "花谷入口", icon: "花", position: point(115, 820), size: 62 }, { title: "旧水磨", icon: "轮", position: point(330, 630), size: 76 },
@@ -308,8 +308,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "fern", icon: "蕨", title: "洞里的幼蕨", position: point(1120, 480), prompt: "把挡住滴水的碎石移开。", completeText: "水珠重新落在卷曲的新叶上。" },
     ],
     hazards: [
-      { id: "rapid", title: "突涨急流", rect: rect(570, 510, 150, 115), period: 8.5, warningFrom: 2.5, activeFrom: 5.5, warning: "上游水声突然变沉，泡沫加速", lesson: "溪流变浑、变响或泡沫加速时，立即离开低处。", color: "#91efff", disabledBy: "valves" },
-      { id: "wet-rock", title: "落石水帘", rect: rect(1190, 260, 125, 100), period: 9, warningFrom: 3.5, activeFrom: 6.4, warning: "岩缝渗水，细石开始弹落", lesson: "瀑布和崖壁下方出现细石时，不要停留拍照。", color: "#ffe394" },
+      { id: "rapid", kind: "water", title: "突涨急流", rect: rect(570, 510, 150, 115), period: 8.5, warningFrom: 2.5, activeFrom: 5.5, warning: "上游水声突然变沉，泡沫加速", lesson: "溪流变浑、变响或泡沫加速时，立即离开低处。", color: "#91efff", disabledBy: "valves" },
+      { id: "wet-rock", kind: "falling", title: "落石水帘", rect: rect(1190, 260, 125, 100), period: 9, warningFrom: 3.5, activeFrom: 6.4, warning: "岩缝渗水，细石开始弹落", lesson: "瀑布和崖壁下方出现细石时，不要停留拍照。", color: "#ffe394" },
     ],
     landmarks: [
       { title: "水车入口", icon: "轮", position: point(150, 95), size: 72 }, { title: "莲叶池", icon: "叶", position: point(480, 770), size: 70 },
@@ -383,8 +383,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "scarf", icon: "巾", title: "芦苇上的围巾", position: point(760, 445), prompt: "把围巾交给等船的孩子。", completeText: "孩子围好围巾，向你挥了挥手。" },
     ],
     hazards: [
-      { id: "mud", title: "吞脚软泥", rect: rect(400, 565, 145, 100), period: 8, warningFrom: 2.7, activeFrom: 5.7, warning: "泥面鼓泡，落叶慢慢下陷", lesson: "河滩泥面鼓泡或物体下陷时，不要试探，沿坚实岸线绕行。", color: "#e4b060" },
-      { id: "rising-water", title: "上涨河水", rect: rect(1150, 650, 145, 100), period: 9, warningFrom: 3.3, activeFrom: 6.2, warning: "水线越过岸边第二块白石", lesson: "水位上涨时及时离开沙洲，不要为捡东西返回。", color: "#7de4e2" },
+      { id: "mud", kind: "mud", title: "吞脚软泥", rect: rect(400, 565, 145, 100), period: 8, warningFrom: 2.7, activeFrom: 5.7, warning: "泥面鼓泡，落叶慢慢下陷", lesson: "河滩泥面鼓泡或物体下陷时，不要试探，沿坚实岸线绕行。", color: "#e4b060" },
+      { id: "rising-water", kind: "water", title: "上涨河水", rect: rect(1150, 650, 145, 100), period: 9, warningFrom: 3.3, activeFrom: 6.2, warning: "水线越过岸边第二块白石", lesson: "水位上涨时及时离开沙洲，不要为捡东西返回。", color: "#7de4e2" },
     ],
     landmarks: [
       { title: "老茶馆", icon: "茶", position: point(125, 105), size: 78 }, { title: "芦苇湾", icon: "苇", position: point(520, 510), size: 70 },
@@ -458,8 +458,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "thermos", icon: "壶", title: "滚下坡的水壶", position: point(1230, 650), prompt: "在下一阵雨前捡回保温壶。", completeText: "壶里的水还温着。" },
     ],
     hazards: [
-      { id: "debris", title: "碎石滑落", rect: rect(575, 410, 145, 110), period: 8, warningFrom: 2.7, activeFrom: 5.5, warning: "坡上响起连续的石子滚动声", lesson: "先有小石滚落时就是离开坡脚的信号，不要停下观察。", color: "#ffd36a" },
-      { id: "flash-flood", title: "山洪沟", rect: rect(1060, 575, 150, 105), period: 9, warningFrom: 3, activeFrom: 6, warning: "沟里水声突然放大，枯枝快速漂来", lesson: "山沟水声骤响、漂浮物增多时，立刻向两侧高处撤离。", color: "#82dff2" },
+      { id: "debris", kind: "falling", title: "碎石滑落", rect: rect(575, 410, 145, 110), period: 8, warningFrom: 2.7, activeFrom: 5.5, warning: "坡上响起连续的石子滚动声", lesson: "先有小石滚落时就是离开坡脚的信号，不要停下观察。", color: "#ffd36a" },
+      { id: "flash-flood", kind: "water", title: "山洪沟", rect: rect(1060, 575, 150, 105), period: 9, warningFrom: 3, activeFrom: 6, warning: "沟里水声突然放大，枯枝快速漂来", lesson: "山沟水声骤响、漂浮物增多时，立刻向两侧高处撤离。", color: "#82dff2" },
     ],
     landmarks: [
       { title: "低地营位", icon: "帐", position: point(115, 845), size: 72 }, { title: "木索桥", icon: "桥", position: point(600, 650), size: 74 },
@@ -533,8 +533,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "snowman", icon: "雪", title: "站台小雪人", position: point(850, 460), prompt: "把掉落的红帽放回雪人头上。", completeText: "候车室里传来一小片笑声。" },
     ],
     hazards: [
-      { id: "icicle", title: "屋檐冰锥", rect: rect(420, 486, 130, 75), period: 8, warningFrom: 3, activeFrom: 5.8, warning: "冰锥出现裂纹，细雪簌簌落下", lesson: "升温或震动时远离屋檐冰锥下方。", color: "#c8f5ff" },
-      { id: "train", title: "无灯调车", rect: rect(1010, 530, 170, 90), period: 9.2, warningFrom: 3.5, activeFrom: 6.5, warning: "铁轨轻震，远处传来低沉鸣笛", lesson: "任何时候都不要在轨道上停留；听到震动或鸣笛立即离开。", color: "#ffbd70" },
+      { id: "icicle", kind: "falling", title: "屋檐冰锥", rect: rect(420, 486, 130, 75), period: 8, warningFrom: 3, activeFrom: 5.8, warning: "冰锥出现裂纹，细雪簌簌落下", lesson: "升温或震动时远离屋檐冰锥下方。", color: "#c8f5ff" },
+      { id: "train", kind: "train", title: "无灯调车", rect: rect(1010, 530, 170, 90), period: 9.2, warningFrom: 3.5, activeFrom: 6.5, warning: "铁轨轻震，远处传来低沉鸣笛", lesson: "任何时候都不要在轨道上停留；听到震动或鸣笛立即离开。", color: "#ffbd70" },
     ],
     landmarks: [
       { title: "站前咖啡", icon: "杯", position: point(105, 350), size: 72 }, { title: "候车室", icon: "候", position: point(680, 210), size: 88 },
@@ -608,8 +608,8 @@ export const LEVELS: LevelDefinition[] = [
       { id: "old-cart", icon: "车", title: "停住的旧矿车", position: point(1370, 350), prompt: "把挡轮石重新垫稳。", completeText: "矿车不再晃动，里面躺着八朵干花。" },
     ],
     hazards: [
-      { id: "steam", title: "间歇蒸汽", rect: rect(675, 315, 130, 105), period: 8, warningFrom: 2.8, activeFrom: 5.6, warning: "岩缝先冒出细白雾，水珠开始震动", lesson: "间歇喷口会先泄出细雾；看见预兆应等待喷发结束。", color: "#bfffee" },
-      { id: "crystal-fall", title: "水晶崩落", rect: rect(1120, 270, 135, 100), period: 9.5, warningFrom: 3.7, activeFrom: 6.8, warning: "洞顶晶尘落下，传来清脆裂声", lesson: "洞顶出现落尘和裂声时，不要停在正下方。", color: "#a88cff" },
+      { id: "steam", kind: "steam", title: "间歇蒸汽", rect: rect(675, 315, 130, 105), period: 8, warningFrom: 2.8, activeFrom: 5.6, warning: "岩缝先冒出细白雾，水珠开始震动", lesson: "间歇喷口会先泄出细雾；看见预兆应等待喷发结束。", color: "#bfffee" },
+      { id: "crystal-fall", kind: "falling", title: "水晶崩落", rect: rect(1120, 270, 135, 100), period: 9.5, warningFrom: 3.7, activeFrom: 6.8, warning: "洞顶晶尘落下，传来清脆裂声", lesson: "洞顶出现落尘和裂声时，不要停在正下方。", color: "#a88cff" },
     ],
     landmarks: [
       { title: "晶簇入口", icon: "晶", position: point(115, 805), size: 78 }, { title: "地下河", icon: "波", position: point(690, 660), size: 84 },

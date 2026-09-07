@@ -1,6 +1,19 @@
 export type AudioBus = "music" | "effects" | "ambience";
 
 export type AudioEventId =
+  | "hazard.sign.creak"
+  | "hazard.object.release"
+  | "hazard.impact.wood"
+  | "hazard.impact.stone"
+  | "hazard.electric.warn"
+  | "hazard.electric.hit"
+  | "hazard.water.warn"
+  | "hazard.water.hit"
+  | "hazard.pressure.warn"
+  | "hazard.pressure.hit"
+  | "hazard.train.warn"
+  | "hazard.train.hit"
+  | "player.soul.rise"
   | "animal.cat"
   | "interaction.phone"
   | "interaction.camera"
@@ -63,10 +76,15 @@ type CaptionHook = (caption: string, pan: number) => void;
 export class AudioManager {
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
-  private buses: Record<AudioBus, GainNode | null> = { music: null, effects: null, ambience: null };
+  private buses: Record<AudioBus, GainNode | null> = {
+    music: null,
+    effects: null,
+    ambience: null,
+  };
   private settings: AudioSettings;
   private ambienceSources: AudioBufferSourceNode[] = [];
   private ambienceStarted = false;
+  private cinematic = false;
   private readonly lastPlayed = new Map<AudioEventId, number>();
 
   constructor(private readonly onCaption: CaptionHook) {
@@ -84,14 +102,20 @@ export class AudioManager {
 
   setSuspended(suspended: boolean) {
     if (!this.context) return;
-    if (suspended && this.context.state === "running") void this.context.suspend();
-    if (!suspended && this.context.state === "suspended") void this.context.resume();
+    if (suspended && this.context.state === "running")
+      void this.context.suspend();
+    if (!suspended && this.context.state === "suspended")
+      void this.context.resume();
   }
 
   setVolume(bus: "master" | AudioBus, value: number) {
     this.settings[bus] = Math.max(0, Math.min(1, value));
     this.applyVolumes();
     this.saveSettings();
+  }
+  setCinematic(enabled: boolean) {
+    this.cinematic = enabled;
+    this.applyVolumes(); // Temporary scene ducking must not overwrite saved user volumes.
   }
 
   setCaptions(enabled: boolean) {
@@ -107,7 +131,11 @@ export class AudioManager {
   startAmbience() {
     if (!this.context || !this.buses.ambience || this.ambienceStarted) return;
     this.ambienceStarted = true;
-    const buffer = this.context.createBuffer(1, this.context.sampleRate * 4, this.context.sampleRate);
+    const buffer = this.context.createBuffer(
+      1,
+      this.context.sampleRate * 4,
+      this.context.sampleRate,
+    );
     const channel = buffer.getChannelData(0);
     let drift = 0;
     for (let index = 0; index < channel.length; index += 1) {
@@ -137,9 +165,16 @@ export class AudioManager {
   }
 
   play(cue: AudioCue) {
-    const pan = this.settings.mono ? 0 : Math.max(-1, Math.min(1, cue.pan ?? 0));
+    const pan = this.settings.mono
+      ? 0
+      : Math.max(-1, Math.min(1, cue.pan ?? 0));
     if (cue.caption && this.settings.captions) this.onCaption(cue.caption, pan);
-    if (!this.context || !this.buses.effects || this.context.state !== "running") return;
+    if (
+      !this.context ||
+      !this.buses.effects ||
+      this.context.state !== "running"
+    )
+      return;
 
     const now = this.context.currentTime;
     const cooldown = this.cooldownFor(cue.id);
@@ -148,6 +183,58 @@ export class AudioManager {
     this.lastPlayed.set(cue.id, now);
 
     switch (cue.id) {
+      case "hazard.sign.creak":
+        this.sweep(180, 78, 0.46, 0.045, pan, "sawtooth");
+        this.tone(136, 0.24, 0.04, "sawtooth", 0.48, pan);
+        this.tone(94, 0.27, 0.036, "triangle", 0.85, pan);
+        this.noise(0.18, 0.022, 3400, pan);
+        break;
+      case "hazard.object.release":
+        this.noise(0.09, 0.065, 2200, pan);
+        this.sweep(240, 65, 0.32, 0.035, pan, "triangle");
+        break;
+      case "hazard.impact.wood":
+      case "hazard.impact.stone":
+        this.noise(0.3, 0.09, cue.id.endsWith("wood") ? 730 : 1450, pan);
+        this.tone(72, 0.2, 0.065, "triangle", 0, pan);
+        [0.11, 0.21, 0.32].forEach((delay, i) =>
+          this.tone(
+            195 + i * 64,
+            0.07,
+            0.026 - i * 0.006,
+            "square",
+            delay,
+            pan,
+          ),
+        );
+        break;
+      case "hazard.electric.warn":
+      case "hazard.electric.hit":
+        this.noise(0.2, 0.038, 3800, pan);
+        this.tone(120, 0.28, 0.028, "sawtooth", 0, pan);
+        break;
+      case "hazard.water.warn":
+      case "hazard.water.hit":
+        this.noise(cue.id.endsWith("warn") ? 0.7 : 0.45, 0.055, 620, pan);
+        this.sweep(140, 65, 0.45, 0.035, pan, "sine");
+        break;
+      case "hazard.pressure.warn":
+      case "hazard.pressure.hit":
+        this.noise(cue.id.endsWith("warn") ? 0.8 : 0.5, 0.047, 2800, pan);
+        break;
+      case "hazard.train.warn":
+        this.chord([196, 247], 0.75, 0.035, pan);
+        this.tone(392, 0.15, 0.028, "triangle", 0.85, pan);
+        break;
+      case "hazard.train.hit":
+        this.noise(0.65, 0.08, 500, pan);
+        this.tone(95, 0.6, 0.04, "sawtooth", 0, pan);
+        break;
+      case "player.soul.rise":
+        [523, 659, 784].forEach((hz, i) =>
+          this.tone(hz, 0.5, 0.018, "sine", i * 0.17, pan),
+        );
+        break;
       case "animal.cat":
         this.sweep(700, 1020, 0.12, 0.025, pan, "sine");
         this.sweep(990, 590, 0.25, 0.026, pan, "sine");
@@ -199,7 +286,9 @@ export class AudioManager {
         this.sweep(260, 170, 0.15, 0.04, pan);
         break;
       case "puzzle.mill.solve":
-        [0, 0.19, 0.38].forEach((delay) => this.tone(164, 0.09, 0.065, "square", delay, pan));
+        [0, 0.19, 0.38].forEach((delay) =>
+          this.tone(164, 0.09, 0.065, "square", delay, pan),
+        );
         this.chord([392, 494, 587], 0.2, 0.04, pan, 0.56);
         break;
       case "puzzle.wind.teach":
@@ -239,7 +328,15 @@ export class AudioManager {
         break;
       case "music.spring.intro":
         [0, 0.32, 0.64, 0.98].forEach((delay, index) => {
-          this.tone([392, 494, 587, 784][index], 0.42, 0.025, "sine", delay, pan, "music");
+          this.tone(
+            [392, 494, 587, 784][index],
+            0.42,
+            0.025,
+            "sine",
+            delay,
+            pan,
+            "music",
+          );
         });
         break;
     }
@@ -262,7 +359,11 @@ export class AudioManager {
     const at = this.context.currentTime;
     this.masterGain.gain.setTargetAtTime(this.settings.master, at, 0.02);
     for (const bus of Object.keys(this.buses) as AudioBus[]) {
-      this.buses[bus]?.gain.setTargetAtTime(this.settings[bus], at, 0.02);
+      this.buses[bus]?.gain.setTargetAtTime(
+        this.settings[bus] * (this.cinematic && bus !== "effects" ? 0.22 : 1),
+        at,
+        0.08,
+      );
     }
   }
 
@@ -318,9 +419,14 @@ export class AudioManager {
 
   private noise(duration: number, volume: number, cutoff: number, pan: number) {
     if (!this.context || !this.buses.effects) return;
-    const buffer = this.context.createBuffer(1, Math.ceil(this.context.sampleRate * duration), this.context.sampleRate);
+    const buffer = this.context.createBuffer(
+      1,
+      Math.ceil(this.context.sampleRate * duration),
+      this.context.sampleRate,
+    );
     const data = buffer.getChannelData(0);
-    for (let index = 0; index < data.length; index += 1) data[index] = Math.random() * 2 - 1;
+    for (let index = 0; index < data.length; index += 1)
+      data[index] = Math.random() * 2 - 1;
     const source = this.context.createBufferSource();
     const filter = this.context.createBiquadFilter();
     const gain = this.context.createGain();
@@ -329,14 +435,36 @@ export class AudioManager {
     filter.frequency.value = cutoff;
     panner.pan.value = pan;
     gain.gain.setValueAtTime(volume, this.context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, this.context.currentTime + duration);
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      this.context.currentTime + duration,
+    );
     source.buffer = buffer;
-    source.connect(filter).connect(gain).connect(panner).connect(this.buses.effects);
+    source
+      .connect(filter)
+      .connect(gain)
+      .connect(panner)
+      .connect(this.buses.effects);
     source.start();
   }
 
-  private chord(frequencies: number[], duration: number, volume: number, pan: number, delay = 0) {
-    frequencies.forEach((frequency, index) => this.tone(frequency, duration, volume, "sine", delay + index * 0.075, pan));
+  private chord(
+    frequencies: number[],
+    duration: number,
+    volume: number,
+    pan: number,
+    delay = 0,
+  ) {
+    frequencies.forEach((frequency, index) =>
+      this.tone(
+        frequency,
+        duration,
+        volume,
+        "sine",
+        delay + index * 0.075,
+        pan,
+      ),
+    );
   }
 
   private cooldownFor(id: AudioEventId) {
@@ -349,14 +477,22 @@ export class AudioManager {
 
   private loadSettings(): AudioSettings {
     try {
-      const parsed = JSON.parse(localStorage.getItem(AUDIO_SAVE_KEY) ?? "{}") as Partial<AudioSettings>;
+      const parsed = JSON.parse(
+        localStorage.getItem(AUDIO_SAVE_KEY) ?? "{}",
+      ) as Partial<AudioSettings>;
       return {
         master: this.validVolume(parsed.master, DEFAULT_SETTINGS.master),
         music: this.validVolume(parsed.music, DEFAULT_SETTINGS.music),
         effects: this.validVolume(parsed.effects, DEFAULT_SETTINGS.effects),
         ambience: this.validVolume(parsed.ambience, DEFAULT_SETTINGS.ambience),
-        captions: typeof parsed.captions === "boolean" ? parsed.captions : DEFAULT_SETTINGS.captions,
-        mono: typeof parsed.mono === "boolean" ? parsed.mono : DEFAULT_SETTINGS.mono,
+        captions:
+          typeof parsed.captions === "boolean"
+            ? parsed.captions
+            : DEFAULT_SETTINGS.captions,
+        mono:
+          typeof parsed.mono === "boolean"
+            ? parsed.mono
+            : DEFAULT_SETTINGS.mono,
       };
     } catch {
       return { ...DEFAULT_SETTINGS };
@@ -364,7 +500,9 @@ export class AudioManager {
   }
 
   private validVolume(value: number | undefined, fallback: number) {
-    return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+    return typeof value === "number" && Number.isFinite(value)
+      ? Math.max(0, Math.min(1, value))
+      : fallback;
   }
 
   private saveSettings() {

@@ -3,10 +3,25 @@ import { Navigation, WORLD, clamp, distance, inHazard, p } from "./navigation";
 import { WORLDS } from "./worldDesign";
 import { SpriteAtlas } from "./SpriteAtlas";
 import { entitiesFor, type Entity } from "./entities";
+import {
+  HazardDirector,
+  DEATH_TIMING,
+  deathStage,
+  gameTime,
+  hazardCenter,
+  hazardProfile,
+  hazardContact,
+} from "./hazardDirector";
+import {
+  drawHazardGround,
+  drawHazardObject,
+  drawSoul,
+} from "./hazardRendering";
 import type {
   CampaignHooks,
   CampaignSave,
   CampaignView,
+  DeathInfo,
   HazardSpec,
   Point,
   PuzzleSpec,
@@ -78,7 +93,13 @@ export class CampaignGame {
   private routeAt = 0;
   private lastBlockedAt = -10;
   private markedUntil = 0;
-  private warned = new Map<string, number>();
+  private hazards = new HazardDirector();
+  private deathScene: {
+    hazard: HazardSpec;
+    age: number;
+    info: DeathInfo;
+    delivered: boolean;
+  } | null = null;
   private keys = new Set<string>();
   private save: CampaignSave;
   constructor(
@@ -163,10 +184,12 @@ export class CampaignGame {
     this.lastView = -1;
     this.completed = false;
     this.dead = false;
+    this.deathScene = null;
+    this.hooks.onCinematic?.(false);
     this.paused = false;
     this.facing = "down";
     this.doneAt.clear();
-    this.warned.clear();
+    this.hazards.reset();
     this.cancel();
     this.footsteps = [];
     this.hovered = null;
@@ -181,6 +204,7 @@ export class CampaignGame {
     this.hooks.onAudio({ id: "music.spring.intro" });
   }
   setPaused(paused: boolean) {
+    if (this.dead) return;
     this.paused = paused;
     if (paused) {
       this.cancel();
@@ -194,6 +218,7 @@ export class CampaignGame {
     this.reducedMotion = enabled;
   }
   solvePuzzle(id: string) {
+    if (this.dead) return;
     const puzzle = this.level.puzzles.find((q) => q.id === id);
     if (!puzzle || this.solved.has(id) || !this.available(puzzle)) return;
     this.solved.add(id);
@@ -231,6 +256,7 @@ export class CampaignGame {
     );
   }
   submitFinal(code: string) {
+    if (this.dead) return false;
     if (this.solved.size !== 4 || code !== this.level.code) return false;
     this.completed = true;
     this.paused = true;
@@ -250,13 +276,32 @@ export class CampaignGame {
     return true;
   }
   restartAfterDeath() {
+    if (this.deathScene && !this.deathScene.delivered) return;
     this.dead = false;
+    this.deathScene = null;
+    this.hazards.reset();
+    this.hooks.onCinematic?.(false);
     this.paused = false;
     this.cancel();
+    this.keys.clear();
     this.player = { ...this.checkpoint };
     this.graceUntil = this.elapsedSeconds + 6;
     this.centerCamera();
     this.emitView();
+  }
+  isInDeathSequence() {
+    return this.dead;
+  }
+  /** Called only by the explicit development review toolbar, never by normal play. */
+  previewSignAccident() {
+    this.startLevel(0, true);
+    this.player = p(870, 340);
+    this.graceUntil = 3;
+    this.centerCamera();
+    this.reveal();
+    this.hooks.onToast(
+      "事故评审：3 秒后招牌开始预警。点击两侧地面可撤离，原地等待可观察完整事故。",
+    );
   }
   saveNow() {
     this.persist();
@@ -353,6 +398,7 @@ export class CampaignGame {
     this.canvas.addEventListener(
       "pointermove",
       (event) => {
+        if (this.paused || this.dead) return;
         this.pointer = p(event.clientX, event.clientY);
         this.hovered = this.hit(this.worldPoint(event));
         this.canvas.style.cursor = this.hovered ? "pointer" : "default";
@@ -461,7 +507,7 @@ export class CampaignGame {
     this.minimap.addEventListener(
       "pointerdown",
       (event) => {
-        if (this.paused) return;
+        if (this.paused || this.dead) return;
         event.preventDefault();
         const rect = this.minimap.getBoundingClientRect(),
           q = p(
@@ -587,12 +633,7 @@ export class CampaignGame {
     });
   private phase(h: HazardSpec) {
     if (h.disabledBy && this.solved.has(h.disabledBy)) return "safe";
-    const phase = this.elapsedSeconds % h.period;
-    return phase >= h.activeFrom
-      ? "active"
-      : phase >= h.warningFrom
-        ? "warning"
-        : "safe";
+    return this.hazards.phase(h);
   }
   private arrive(entity: Entity) {
     if (distance(this.entityPosition(entity), this.player) > 115) return;
@@ -667,11 +708,15 @@ export class CampaignGame {
     if (!this.running) return;
     const delta = Math.min(0.04, (time - this.lastFrame) / 1000);
     this.lastFrame = time;
-    if (!this.paused && !this.dead && !document.hidden) this.update(delta);
+    if (!document.hidden) {
+      if (this.dead) this.updateDeath(delta);
+      else if (!this.paused) this.update(delta);
+    }
     this.draw();
     requestAnimationFrame((next) => this.frame(next));
   }
   private update(delta: number) {
+    if (this.paused || this.dead || document.hidden) return;
     this.elapsedSeconds += delta;
     this.destinationAge = Math.max(0, this.destinationAge - delta);
     this.footsteps = this.footsteps.filter((f) => {
@@ -816,7 +861,7 @@ export class CampaignGame {
       );
     }
     this.reveal();
-    this.updateHazards();
+    this.updateHazards(delta);
     const second = Math.floor(this.elapsedSeconds);
     if (second !== this.lastView) {
       this.lastView = second;
@@ -824,46 +869,99 @@ export class CampaignGame {
       if (second % 5 === 0) this.persist();
     }
   }
-  private updateHazards() {
+  private updateHazards(delta: number) {
     for (const hazard of this.level.hazards) {
-      const phase = this.phase(hazard),
-        center = p(
-          hazard.rect.x + hazard.rect.width / 2,
-          hazard.rect.y + hazard.rect.height / 2,
-        ),
-        cycle = Math.floor(this.elapsedSeconds / hazard.period);
-      if (
-        phase !== "safe" &&
-        distance(center, this.player) < 250 &&
-        this.warned.get(hazard.id) !== cycle
-      ) {
-        this.warned.set(hazard.id, cycle);
-        this.hooks.onAudio({
-          id: /落|崩|枝/.test(hazard.title)
-            ? "hazard.branch.creak"
-            : "hazard.wind.warn",
-          caption: hazard.warning,
-          pan: clamp((center.x - this.player.x) / 300, -1, 1),
-        });
+      const center = hazardCenter(hazard),
+        profile = hazardProfile(hazard);
+      const presented =
+        center.x > this.camera.x + 25 &&
+        center.x < this.camera.x + this.width - 25 &&
+        center.y > this.camera.y + (profile.once ? 155 : 55) &&
+        center.y < this.camera.y + this.height - 45;
+      const events = this.hazards.update(
+        hazard,
+        delta,
+        this.player,
+        this.elapsedSeconds > this.graceUntil,
+        presented,
+        Boolean(hazard.disabledBy && this.solved.has(hazard.disabledBy)),
+      );
+      const pan = clamp((center.x - this.player.x) / 300, -1, 1);
+      for (const event of events) {
+        if (event.type === "warning")
+          this.hooks.onAudio({
+            id: profile.warnSound,
+            caption: hazard.warning,
+            pan,
+          });
+        if (event.type === "release" && profile.once)
+          this.hooks.onAudio({
+            id: "hazard.object.release",
+            caption:
+              profile.kind === "sign" ? "咔——挂钩断裂！" : "上方的碎块脱落！",
+            pan,
+          });
+        if (event.type === "impact" && distance(center, this.player) < 360)
+          this.hooks.onAudio({
+            id: profile.impactSound,
+            caption: profile.impactText,
+            pan,
+          });
+        if (event.type === "avoided")
+          this.hooks.onToast(
+            `你及时离开了${hazard.title}的危险范围。`,
+            "success",
+          );
       }
       if (
-        phase === "active" &&
+        this.hazards.lethal(hazard, events) &&
         this.elapsedSeconds > this.graceUntil &&
-        inHazard(this.player, hazard.rect, 5)
+        hazardContact(hazard, this.hazards.state(hazard), this.player)
       ) {
-        this.dead = true;
-        this.paused = true;
-        this.cancel();
-        this.deathCount++;
-        this.persist();
-        this.hooks.onAudio({ id: "player.death.soft" });
-        this.hooks.onDeath({
-          cause: hazard.title,
-          lesson: hazard.lesson,
-          time: this.level.startTime,
-        });
-        break;
+        this.beginDeath(hazard);
+        return;
       }
+    }
+  }
+  private beginDeath(hazard: HazardSpec) {
+    if (this.dead) return;
+    this.dead = true;
+    this.paused = true;
+    this.cancel();
+    this.keys.clear();
+    this.hovered = null;
+    this.canvas.style.cursor = "default";
+    this.deathCount++;
+    this.deathScene = {
+      hazard,
+      age: 0,
+      delivered: false,
+      info: {
+        cause: hazard.title,
+        lesson: hazard.lesson,
+        sequence: `${hazard.warning} → ${hazardProfile(hazard).impactText}。`,
+        time: gameTime(this.level.startTime, this.elapsedSeconds),
+      },
+    };
+    this.persist();
+    this.emitView();
+    this.hooks.onCinematic?.(true);
+    this.hooks.onAudio({ id: "player.death.soft" });
+  }
+  private updateDeath(delta: number) {
+    const scene = this.deathScene;
+    if (!scene || scene.delivered || document.hidden) return;
+    const previous = scene.age;
+    scene.age += delta;
+    this.hazards.update(scene.hazard, delta, this.player, false, true);
+    if (previous < DEATH_TIMING.soul && scene.age >= DEATH_TIMING.soul)
+      this.hooks.onAudio({
+        id: "player.soul.rise",
+        caption: "一缕小小的灵魂，带着今天的记忆升起",
+      });
+    if (scene.age >= DEATH_TIMING.dialog) {
+      scene.delivered = true;
+      this.hooks.onDeath(scene.info);
     }
   }
   private seen(q: Point) {
@@ -916,13 +1014,18 @@ export class CampaignGame {
     const actors = [
       ...this.entities.map((entity) => ({
         y: this.entityPosition(entity).y,
-        entity,
+        draw: () => this.drawEntity(entity),
       })),
-      { y: this.player.y, entity: null },
+      { y: this.player.y, draw: () => this.drawPlayer() },
+      ...this.level.hazards.map((h) => ({
+        y: hazardCenter(h).y,
+        draw: () =>
+          drawHazardObject(ctx, h, this.hazards.state(h), this.reducedMotion),
+      })),
     ].sort((a, b) => a.y - b.y);
-    actors.forEach((actor) =>
-      actor.entity ? this.drawEntity(actor.entity) : this.drawPlayer(),
-    );
+    actors.forEach((actor) => actor.draw());
+    if (this.deathScene)
+      drawSoul(ctx, this.player, this.deathScene.age, this.reducedMotion);
     if (this.destination && this.destinationAge > 0 && !this.focus) {
       ctx.globalAlpha = (this.destinationAge / 0.65) * 0.7;
       ctx.strokeStyle = "#fff9de";
@@ -935,6 +1038,24 @@ export class CampaignGame {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+    if (this.deathScene) {
+      const focusX = this.player.x - this.camera.x,
+        focusY = this.player.y - this.camera.y - 40;
+      const vignette = ctx.createRadialGradient(
+        focusX,
+        focusY,
+        55,
+        focusX,
+        focusY,
+        Math.max(this.width, this.height) * 0.7,
+      );
+      vignette.addColorStop(0, "#15273600");
+      vignette.addColorStop(1, "#152736c9");
+      ctx.globalAlpha = clamp(this.deathScene.age / 0.65, 0, 1);
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.globalAlpha = 1;
+    }
     this.drawMinimap();
     if (new URLSearchParams(location.search).has("debug"))
       this.canvas.dataset.state = JSON.stringify({
@@ -948,13 +1069,25 @@ export class CampaignGame {
         hover: this.hovered?.id,
         explored: this.explored.size,
         paused: this.paused,
+        death: this.deathScene
+          ? { stage: deathStage(this.deathScene.age), age: this.deathScene.age }
+          : null,
+        hazards: this.level.hazards.map((h) => ({
+          id: h.id,
+          ...this.hazards.state(h),
+        })),
       });
   }
   private drawPlayer() {
+    if (this.deathScene) {
+      this.drawFallenPlayer();
+      return;
+    }
     const ctx = this.ctx,
       moving = this.path.length > 0 && this.speed > 10,
       phase = (this.stride / 54) * Math.PI * 2;
-    const sideAction = this.pending && (this.facing === "left" || this.facing === "right");
+    const sideAction =
+      this.pending && (this.facing === "left" || this.facing === "right");
     const row = sideAction
       ? 3
       : this.facing === "up"
@@ -995,6 +1128,42 @@ export class CampaignGame {
       );
       ctx.stroke();
     }
+  }
+  private drawFallenPlayer() {
+    const scene = this.deathScene!,
+      ctx = this.ctx,
+      kind = hazardProfile(scene.hazard).kind;
+    if (scene.age > 0.85) return;
+    const collapse = clamp(scene.age / 0.28, 0, 1);
+    const submerged = kind === "water" || kind === "mud";
+    ctx.save();
+    ctx.globalAlpha = 1 - clamp((scene.age - 0.28) / 0.57, 0, 1);
+    ctx.translate(this.player.x, this.player.y);
+    if (submerged) {
+      ctx.beginPath();
+      ctx.rect(-65, -90, 130, 91);
+      ctx.clip();
+      ctx.translate(0, collapse * 45);
+    } else if (!this.reducedMotion) {
+      ctx.rotate((this.facing === "left" ? -1 : 1) * collapse * Math.PI * 0.43);
+      ctx.scale(1, 1 - collapse * 0.16);
+    }
+    this.atlas.draw(
+      ctx,
+      "traveler-v2",
+      this.facing === "up"
+        ? 8
+        : this.facing === "left" || this.facing === "right"
+          ? 4
+          : 0,
+      0,
+      0,
+      78,
+      false,
+      this.facing === "left",
+      63,
+    );
+    ctx.restore();
   }
   private drawCrossing() {
     if (this.levelIndex !== 3 || !this.solved.has("lily-path")) return;
@@ -1064,58 +1233,11 @@ export class CampaignGame {
     }
   }
   private drawHazard(h: HazardSpec) {
-    const phase = this.phase(h);
-    if (phase === "safe" && !this.dangerAssist) return;
-    const ctx = this.ctx,
-      r = h.rect,
-      cx = r.x + r.width / 2,
-      cy = r.y + r.height / 2;
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, r.width / 2, r.height / 2, 0, 0, Math.PI * 2);
-    if (this.dangerAssist) {
-      ctx.strokeStyle =
-        phase === "active"
-          ? "#ff8772"
-          : phase === "warning"
-            ? "#ffe49d"
-            : "#fcdf934d";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 7]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    ctx.clip();
-    if (phase !== "safe") {
-      ctx.fillStyle = phase === "active" ? `${h.color}25` : `${h.color}10`;
-      ctx.fillRect(r.x, r.y, r.width, r.height);
-      ctx.strokeStyle = phase === "active" ? h.color : `${h.color}aa`;
-      ctx.fillStyle = h.color;
-      ctx.lineWidth = 1.5;
-      const weather = /水|洪|潮|浪|涌|蒸/.test(h.title),
-        count = phase === "active" ? 22 : 7;
-      for (let i = 0; i < count; i++) {
-        const x = r.x + ((i * 53.7) % r.width),
-          y =
-            r.y +
-            ((i * 31.3 + this.elapsedSeconds * (phase === "active" ? 55 : 17)) %
-              r.height);
-        if (weather) {
-          ctx.beginPath();
-          ctx.ellipse(x, y, 8 + (i % 7), 2, 0, 0, Math.PI * 2);
-          ctx.stroke();
-        } else {
-          ctx.globalAlpha = 0.35 + (i % 3) * 0.2;
-          ctx.fillRect(
-            x,
-            y,
-            phase === "active" ? 4 : 2,
-            phase === "active" ? 7 : 2,
-          );
-        }
-      }
-    }
-    ctx.restore();
+    drawHazardGround(this.ctx, h, this.hazards.state(h), {
+      assist: this.dangerAssist,
+      reduced: this.reducedMotion,
+      time: this.elapsedSeconds,
+    });
   }
   private drawAtmosphere() {
     if (this.reducedMotion) return;

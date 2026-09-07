@@ -2,6 +2,7 @@ import "./style.css";
 import { AudioManager, type AudioBus } from "./audio/AudioManager";
 import { CampaignGame } from "./campaign/CampaignGame";
 import { shuffledOptions } from "./campaign/puzzleLogic";
+import { gameTime } from "./campaign/hazardDirector";
 import { CAMPAIGN_PHRASE, LEVELS } from "./campaign/levels";
 import type {
   CampaignView,
@@ -16,7 +17,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
-      <div class="release-chip"><i></i> EXPLORATION PASS 0.10.0</div>
+      <div class="release-chip"><i></i> LIVING WORLD 0.11.0</div>
     </header>
     <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
       <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
@@ -44,7 +45,7 @@ app.innerHTML = `
       <div id="campaignOverlay" class="overlay active"><div class="campaign-card"><div class="campaign-copy"><p class="eyebrow">EIGHT ORDINARY DAYS</p><h1>八日旅程</h1><p>死亡不是猜拳。观察环境的提前迹象，记住失败带来的知识，再把今天认真走完。</p><div class="phrase-preview"><small>最终日记</small><b id="phrasePreview">＿＿＿＿，＿＿＿＿</b></div></div><div id="levelGrid" class="level-grid"></div><div id="levelBrief" class="level-brief"></div></div></div>
       <div id="puzzleOverlay" class="overlay" hidden><div class="puzzle-card"><button id="puzzleClose" class="modal-close" aria-label="暂时离开谜题">×</button><div class="puzzle-heading"><span id="puzzleIcon">◉</span><div><p class="eyebrow" id="puzzleType">SEQUENCE</p><h2 id="puzzleTitle">谜题</h2></div></div><p id="puzzleStory" class="puzzle-story"></p><div class="evidence-board"><b>现场观察</b><div id="evidenceList"></div></div><div class="solve-board"><b id="puzzleInstruction"></b><div id="puzzleControls"></div><p id="puzzleFeedback" class="puzzle-feedback" aria-live="polite"></p></div><div class="hint-ladder"><button id="puzzleHintButton">拆开一层提示 <span>0 / 3</span></button><p id="puzzleHintText">提示会逐层从“注意什么”推进到“具体怎么做”。</p></div></div></div>
       <div id="codeOverlay" class="overlay" hidden><div class="code-card"><button id="codeClose" class="modal-close" aria-label="离开口令门">×</button><p class="eyebrow">FINAL DEDUCTION</p><h2>把今天放回正确顺序</h2><p>数字不是直接抄来的。先按终点门框上的符号顺序，再查日志中每个符号对应的数字。</p><div id="codeOrder" class="code-order"></div><input id="codeInput" maxlength="4" inputmode="numeric" aria-label="四位通关口令" autocomplete="off"><div class="keypad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => `<button data-digit="${digit}">${digit}</button>`).join("")}<button data-key="back">←</button><button data-digit="0">0</button><button data-key="enter">✓</button></div><p id="codeFeedback" class="puzzle-feedback" aria-live="polite"></p></div></div>
-      <div id="deathOverlay" class="overlay" hidden><div class="death-card"><p class="eyebrow danger">THIS DAY ENDED AT <span id="deathTime"></span></p><div class="fallen-flower">✿</div><h2 id="deathCause">这一天停下了</h2><p id="deathLesson"></p><div class="memory-kept">已解开的主线线索会保留。你失去的是这次路程，不是学到的经验。</div><button id="restartButton" class="primary-action">带着记忆重来 <span>↻</span></button></div></div>
+      <div id="deathOverlay" class="overlay" hidden><div class="death-card"><p class="eyebrow danger">THIS DAY ENDED AT <span id="deathTime"></span></p><div class="fallen-flower">✿</div><h2 id="deathCause">这一天停下了</h2><p id="deathSequence" class="death-sequence"></p><p id="deathLesson"></p><div class="memory-kept">已解开的主线线索会保留。你失去的是这次路程，不是学到的经验。</div><button id="restartButton" class="primary-action">带着记忆重来 <span>↻</span></button></div></div>
       <div id="completeOverlay" class="overlay" hidden><div class="complete-card"><p class="eyebrow">DAY COMPLETE</p><span id="completeStamp" class="big-stamp">好</span><h2 id="completeTitle"></h2><p id="completeEnding"></p><div id="completeStats" class="complete-stats"></div><div class="complete-actions"><button id="nextLevelButton" class="primary-action">进入下一天 →</button><button id="backCampaignButton" class="secondary-action">八日旅程</button></div></div></div>
     </section>
   </main>`;
@@ -114,10 +115,10 @@ const updateView = (view: CampaignView) => {
   byId("weatherIcon").textContent = view.level.weatherIcon;
   byId("dayValue").textContent =
     `DAY ${String(view.level.day).padStart(2, "0")}`;
-  const [baseHour, baseMinute] = view.level.startTime.split(":").map(Number);
-  const gameMinutes = Math.floor(view.elapsedSeconds / 8);
-  byId("timeValue").textContent =
-    `${String((baseHour + Math.floor((baseMinute + gameMinutes) / 60)) % 24).padStart(2, "0")}:${String((baseMinute + gameMinutes) % 60).padStart(2, "0")}`;
+  byId("timeValue").textContent = gameTime(
+    view.level.startTime,
+    view.elapsedSeconds,
+  );
   byId("progressValue").textContent =
     `主线 ${view.solved.length} / ${view.level.puzzles.length}`;
   byId("objectiveValue").textContent = view.objective;
@@ -143,7 +144,25 @@ game = new CampaignGame(canvas, {
     byId("deathTime").textContent = info.time;
     byId("deathCause").textContent = info.cause;
     byId("deathLesson").textContent = info.lesson;
+    byId("deathSequence").textContent = info.sequence ?? "";
     showOverlay(deathOverlay);
+    byId("restartButton").focus();
+  },
+  onCinematic: (active) => {
+    gameFrame.classList.toggle("cinematic", active);
+    [".hud-top", "#quickbar", "#minimap"].forEach((selector) => {
+      const element = gameFrame.querySelector<HTMLElement>(selector);
+      if (element) element.inert = active;
+    });
+    if (active) {
+      window.clearTimeout(toastTimer);
+      toast.classList.remove("show");
+    } else {
+      window.clearTimeout(captionTimer);
+      soundCaption.hidden = true;
+      soundCaption.classList.remove("show");
+    }
+    audio.setCinematic(active);
   },
   onComplete: (level, view) => openComplete(level, view),
   onAudio: (cue) => audio.play(cue),
@@ -430,6 +449,7 @@ function openComplete(level: LevelDefinition, view: CampaignView) {
 }
 
 function openDrawer() {
+  if (game.isInDeathSequence()) return;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   byId("menuButton").setAttribute("aria-expanded", "true");
@@ -693,6 +713,10 @@ document.addEventListener("keydown", (event) => {
 });
 renderCampaign();
 
+document.addEventListener("visibilitychange", () =>
+  audio.setSuspended(document.hidden),
+);
+
 // Explicit development-only review controls. Normal players never see or need these.
 if (import.meta.env.DEV && new URLSearchParams(location.search).has("debug")) {
   const review = document.createElement("nav");
@@ -719,4 +743,20 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("debug")) {
       game.startLevel(selectedLevel, true);
     }),
   );
+  const accident = document.createElement("button");
+  accident.textContent = "评审招牌事故";
+  accident.addEventListener("click", () => {
+    [
+      campaignOverlay,
+      puzzleOverlay,
+      codeOverlay,
+      deathOverlay,
+      completeOverlay,
+    ].forEach(hideOverlay);
+    drawer.classList.remove("open");
+    activePuzzle = null;
+    puzzleCompleting = false;
+    game.previewSignAccident();
+  });
+  review.append(accident);
 }

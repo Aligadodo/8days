@@ -263,6 +263,8 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 }
 
 /* Exploration HUD: a readable world first, details only on request. */
+.cinematic .hud-top, .cinematic .quickbar, .cinematic .minimap, .cinematic .route-help { opacity: 0; pointer-events: none; transition: opacity .28s ease; }
+.death-sequence { margin: 10px 0 16px; color: #746f65; font-size: 12px; line-height: 1.7; border-bottom: 1px solid #c9be9c; padding-bottom: 12px; }
 .hud-top { grid-template-columns: 128px minmax(200px, 460px) 106px; justify-content: space-between; }
 .objective-card b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .objective-card[aria-expanded="false"] > i { transform: none; }

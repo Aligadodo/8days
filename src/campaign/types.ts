@@ -66,6 +66,7 @@ export interface SideTaskSpec {
 }
 
 export interface HazardSpec {
+  kind?: import("./hazardDirector").HazardKind;
   id: string;
   title: string;
   rect: Rect;
@@ -149,9 +150,11 @@ export interface DeathInfo {
   cause: string;
   lesson: string;
   time: string;
+  sequence?: string;
 }
 
 export interface CampaignHooks {
+  onCinematic?: (active: boolean) => void;
   onView: (view: CampaignView) => void;
   onToast: (message: string, tone?: "normal" | "success" | "danger") => void;
   onPuzzle: (puzzle: PuzzleSpec) => void;

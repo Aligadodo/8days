@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 - 2026-09-07
+
+- Replaced global modulo hazard timing and instant death dialogs with scene-local warning, release, contact, aftermath and recovery states across 16 hazards.
+- Added a tangible cafe sign: dust and creaking, a full 1.5-second evacuation window, a 0.42-second fall, ground-contact collision, debris and a persistent broken sign for the current attempt.
+- Added a successful-escape branch without a death modal or lingering invisible damage.
+- Added non-graphic collapse/submerge, fading, a rising scarf-wearing soul and a death dialog delayed until 2.45 seconds after impact, with actual game time and a causal recap.
+- Added material-specific synthesized warning/impact audio, temporary ambience/music ducking, hidden-tab audio suspension and motion-reduced presentation.
+- Added water, electric, wind, smoke, steam, falling-object and train effects; train contact follows its moving carriage.
+- Preserved v2 progress/checkpoints; retries reset physical danger states with a fresh protection period. Cinematic input cannot skip or double-count death.
+- Added 12 hazard/cinematic regression tests (33 total), a development-only accident review entry and a detailed interaction authoring specification with honest remaining scope.
+
 ## 0.10.0 - 2026-09-07
 
 - Replaced mixed-facing walking frames with a consistent 16-frame traveler atlas and stable direction hysteresis.

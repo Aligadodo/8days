@@ -179,18 +179,138 @@ test("active danger stops a running route and resumes the same destination", () 
   };
   game.elapsedSeconds = 0;
   game.navigate({ x: 900, y: 450 }, null, false);
-  game.elapsedSeconds = 3;
+  // Runtime danger is now scene-local, not elapsedSeconds modulo a global period.
+  const hazard = game.level.hazards[0];
+  game.hazards.state(hazard).stage = "active";
   for (let tick = 0; tick < 60 && !game.waiting; tick++) game.update(0.02);
   assert.equal(game.waiting, true);
   assert.ok(game.player.x < 740);
   assert.equal(game.dead, false);
   assert.ok(game.destination);
-  game.elapsedSeconds = 100;
+  game.hazards.state(hazard).stage = "spent";
   game.update(0.02);
   for (let tick = 0; tick < 30; tick++) game.update(0.02);
   assert.equal(game.waiting, false);
   game.cancel();
   assert.equal(game.path.length, 0);
   assert.equal(game.destination, null);
+  game.destroy();
+});
+
+test("sign gives a full warning, falls, then soul precedes the death dialog exactly once", () => {
+  let dialog = 0,
+    cinematic = false;
+  const cues = [];
+  const game = new CampaignGame(new Canvas(), {
+    ...hooks,
+    onDeath: () => dialog++,
+    onCinematic: (value) => (cinematic = value),
+    onAudio: (cue) => cues.push(cue.id),
+  });
+  game.previewSignAccident();
+  const sign = game.level.hazards.find((h) => h.id === "falling-sign");
+  game.level = { ...game.level, hazards: [sign] };
+  game.elapsedSeconds = 3.1;
+  game.update(0.02);
+  assert.equal(game.hazards.state(sign).stage, "warning");
+  for (let i = 0; i < 74; i++) game.update(0.02);
+  assert.equal(game.dead, false);
+  assert.equal(game.hazards.state(sign).stage, "warning");
+  game.update(0.02);
+  assert.equal(game.hazards.state(sign).stage, "release");
+  for (let i = 0; i < 20; i++) game.update(0.02);
+  assert.equal(game.dead, false, "still airborne at 0.40 seconds");
+  game.update(0.02);
+  assert.equal(game.dead, true);
+  assert.equal(cinematic, true);
+  assert.equal(dialog, 0);
+  assert.equal(game.getView().deaths, 1);
+  game.setPaused(false);
+  game.restartAfterDeath();
+  assert.equal(
+    game.dead,
+    true,
+    "cannot skip the scene by resuming or early retry",
+  );
+  for (let i = 0; i < 90; i++) game.updateDeath(0.02);
+  assert.equal(dialog, 0);
+  assert.ok(cues.includes("player.soul.rise"));
+  for (let i = 0; i < 35; i++) game.updateDeath(0.02);
+  assert.equal(dialog, 1);
+  game.updateDeath(5);
+  game.updateHazards(0.02);
+  assert.equal(dialog, 1);
+  assert.equal(game.getView().deaths, 1);
+  assert.ok(
+    cues.indexOf("hazard.sign.creak") < cues.indexOf("hazard.object.release"),
+  );
+  assert.ok(
+    cues.indexOf("hazard.object.release") < cues.indexOf("hazard.impact.wood"),
+  );
+  assert.ok(
+    cues.indexOf("hazard.impact.wood") < cues.indexOf("player.soul.rise"),
+  );
+  game.restartAfterDeath();
+  assert.equal(cinematic, false);
+  assert.equal(game.dead, false);
+  assert.equal(game.hazards.state(sign).stage, "dormant");
+  assert.deepEqual(game.player, game.checkpoint);
+  game.destroy();
+});
+
+test("player can click directly out of sign's footprint during warning and keep playing", () => {
+  let dialog = 0;
+  const toasts = [];
+  const game = new CampaignGame(new Canvas(), {
+    ...hooks,
+    onDeath: () => dialog++,
+    onToast: (value) => toasts.push(value),
+  });
+  game.previewSignAccident();
+  game.level = {
+    ...game.level,
+    hazards: game.level.hazards.filter((h) => h.id === "falling-sign"),
+  };
+  game.elapsedSeconds = 3.1;
+  game.update(0.02);
+  game.navigate({ x: 1010, y: 355 }, null, false);
+  for (let i = 0; i < 250; i++) game.update(0.02);
+  assert.equal(game.dead, false);
+  assert.equal(dialog, 0);
+  assert.ok(game.player.x > 1005);
+  assert.ok(toasts.some((t) => t.includes("及时离开")));
+  assert.equal(game.hazards.state(game.level.hazards[0]).stage, "spent");
+  game.navigate({ x: 870, y: 340 }, null, false);
+  for (let i = 0; i < 350; i++) game.update(0.02);
+  assert.equal(
+    game.dead,
+    false,
+    "no invisible damage remains on the fallen sign",
+  );
+  game.destroy();
+});
+
+test("menus and background tabs freeze warning and soul timelines", () => {
+  const game = new CampaignGame(new Canvas(), hooks);
+  game.previewSignAccident();
+  game.elapsedSeconds = 4;
+  game.update(0.02);
+  const sign = game.level.hazards.find((h) => h.id === "falling-sign");
+  const age = game.hazards.state(sign).age;
+  game.setPaused(true);
+  game.update(20);
+  assert.equal(game.hazards.state(sign).age, age);
+  game.setPaused(false);
+  document.hidden = true;
+  game.update(20);
+  assert.equal(game.hazards.state(sign).age, age);
+  document.hidden = false;
+  game.beginDeath(sign);
+  document.hidden = true;
+  game.updateDeath(20);
+  assert.equal(game.deathScene.age, 0);
+  document.hidden = false;
+  game.updateDeath(0.4);
+  assert.equal(game.deathScene.age, 0.4);
   game.destroy();
 });
