@@ -4,6 +4,7 @@ import { CampaignGame } from "./campaign/CampaignGame";
 import { shuffledOptions } from "./campaign/puzzleLogic";
 import { gameTime } from "./campaign/hazardDirector";
 import { CAMPAIGN_PHRASE, LEVELS } from "./campaign/levels";
+import { canOpenDrawer, hasVisibleModal, trapModalTab } from "./ui/modalState";
 import type {
   CampaignView,
   LevelDefinition,
@@ -17,15 +18,16 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
-      <div class="release-chip"><i></i> LIVING WORLD 0.13.0</div>
+      <div class="release-chip"><i></i> LIVING WORLD 0.14.0</div>
     </header>
     <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
       <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
+      <div id="doorOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="doorTitle" hidden><div class="door-card pixel-panel"><small>一扇门，两种发现</small><h2 id="doorTitle"></h2><p>可以先进去逛逛，也可以调查门旁的主线物件。自由探索不影响今天的任务。</p><button id="doorEnter" class="primary-action">进入室内</button><button id="doorInspect" class="secondary-action">调查门旁物件</button><button id="doorCancel" class="secondary-action">暂时离开</button></div></div>
       <div class="hud-top">
         <div class="day-card pixel-panel"><span id="weatherIcon">☂</span><div><b id="dayValue">DAY 01</b><small id="timeValue">07:18</small></div></div>
         <div class="mission-stack">
           <button id="objectiveButton" class="objective-card pixel-panel" aria-expanded="false"><span class="objective-star">✦</span><span><small id="progressValue">主线 0 / 4</small><b id="objectiveValue">找到第一处线索</b></span><i>⌄</i></button>
-          <div id="guideCard" class="guide-card pixel-panel collapsed"><div><span class="guide-label">现在做什么</span><p id="guideReason">鼠标停在物件上时显示细光边；点击后自动靠近调查。</p></div><button id="locateButton">在小地图定位</button><button id="fieldHintButton">给我一点提示 <span>1/3</span></button><p id="fieldHint" class="field-hint" hidden></p></div>
+          <div id="guideCard" class="guide-card pixel-panel collapsed"><div><span class="guide-label">现在做什么</span><p id="guideReason">鼠标停在物件上时显示细光边；点击后自动靠近调查。</p></div><button id="locateButton">在小地图定位</button><button id="roomButton" hidden>寻找可进入的房间</button><button id="fieldHintButton">给我一点提示 <span>1/3</span></button><p id="fieldHint" class="field-hint" hidden></p></div>
         </div>
         <div class="hud-actions"><button id="fullscreenButton" class="icon-button pixel-panel" aria-label="进入全屏" title="全屏">⛶</button><button id="menuButton" class="icon-button pixel-panel" aria-label="打开背包" aria-expanded="false" title="背包">▣</button></div>
       </div>
@@ -124,12 +126,14 @@ const updateView = (view: CampaignView) => {
   byId("objectiveValue").textContent = view.objective;
   const current = view.currentPuzzle;
   byId("guideReason").textContent =
-    view.accessHint ??
+    (view.exploration.roomId ? `这里是${view.exploration.sceneName}。收藏、打卡与修复都属于自由探索；点原门可返回，日志记录线索和地方成就。` : undefined) ?? view.accessHint ??
     (current
       ? `寻找“${current.title}”。鼠标悬停时物件会描边，点击后自动靠近。需要找路时可以在小地图定位。`
       : "四段记忆已经齐全。前往终点，现场可以展开记忆卡核对符号。");
   renderFieldHint();
-  const signature = `${view.level.id}:${view.solved.join(",")}:${view.sideTasks.join(",")}:${view.worldFlags.join(",")}:${view.completed}`;
+  byId("roomButton").hidden = !view.exploration.roomName;
+  byId("roomButton").textContent = view.exploration.roomId ? "走到出口，返回大地图" : `自由探索 · 前往${view.exploration.roomName}`;
+  const signature = `${view.level.id}:${view.solved.join(",")}:${view.sideTasks.join(",")}:${view.worldFlags.join(",")}:${view.completed}:${view.exploration.flags.join(",")}:${view.exploration.roomId}:${view.exploration.visited}`;
   if (signature !== contentSignature) {
     contentSignature = signature;
     renderInventory(view);
@@ -138,6 +142,15 @@ const updateView = (view: CampaignView) => {
 };
 
 game = new CampaignGame(canvas, {
+  onDoorChoice: (title, enter, inspect) => {
+    const overlay = byId("doorOverlay");
+    byId("doorTitle").textContent = title;
+    const choose = (action: () => void) => { overlay.hidden = true; overlay.classList.remove("active"); action(); };
+    byId("doorEnter").onclick = () => choose(enter);
+    byId("doorInspect").onclick = () => choose(inspect);
+    byId("doorCancel").onclick = () => choose(() => { game.setPaused(false); canvas.focus(); });
+    showOverlay(overlay); byId("doorEnter").focus();
+  },
   onView: updateView,
   onToast: showToast,
   onPuzzle: openPuzzle,
@@ -220,6 +233,11 @@ function renderInventory(view: CampaignView) {
           )
           .join("")
       : `<div class="empty-state"><span>◇</span><p>背包还是空的。<br>调查真实物件，收集今天的线索。</p></div>`;
+  if (view.exploration.items.length) {
+    byId("inventoryGrid").querySelector(".empty-state")?.remove();
+    byId("inventoryGrid").insertAdjacentHTML("beforeend", view.exploration.items.map(item =>
+      `<div class="inventory-item collection-item"><span>${item.category === "nature" ? "❧" : item.category === "postcard" ? "▧" : item.category === "tool" ? "⚒" : "◇"}</span><b>${item.title}</b><small>自由探索 · ${item.category === "tool" ? "可重复使用，不消耗" : "已收藏，不必重复拾取"}</small></div>`).join(""));
+  }
   byId("quickbar").innerHTML = [0, 1, 2, 3, 4]
     .map((index) => {
       const q = found[index];
@@ -241,6 +259,9 @@ function renderInventory(view: CampaignView) {
 }
 
 function renderJournal(view: CampaignView) {
+  let exploration = document.getElementById("explorationJournal");
+  if (!exploration) { exploration = document.createElement("div"); exploration.id = "explorationJournal"; byId("sideList").parentElement!.after(exploration); }
+  exploration.innerHTML = `<details class="journal-block" open><summary>自由探索 · ${view.exploration.flags.length}/${view.exploration.discoveries.length}</summary><p class="exploration-help">无需完成主线即可发现。工具与收藏永久记入本日相册，重走这一天也不会丢失。</p>${view.exploration.discoveries.map(d => `<div class="side-row ${d.done ? "done" : ""}"><i>${d.done ? "✓" : "·"}</i><span><b>${d.title} <small>${d.location}</small></b><small>${d.description}</small></span></div>`).join("")}</details><details class="journal-block" open><summary>地方成就</summary>${view.exploration.achievements.map(a => `<div class="side-row ${a.done ? "done" : ""}"><i>${a.done ? "✦" : "◇"}</i><span><b>${a.title}</b><small>${a.description} · ${a.done ? "已达成" : "尚未达成"}</small></span></div>`).join("")}</details><details class="journal-block"><summary>八日收藏册</summary>${view.exploration.album.map(a => `<div class="side-row"><i>${a.visited ? "▧" : "·"}</i><span><b>DAY ${a.day} · ${a.title}</b><small>收藏 ${a.found}/${a.total} · ${a.visited ? "子场景已打卡" : "还有一处室内等你探索"}</small></span></div>`).join("")}</details>`;
   byId("journalTitle").textContent =
     `DAY ${String(view.level.day).padStart(2, "0")} · ${view.level.name}`;
   byId("journalBar").style.width =
@@ -277,6 +298,10 @@ function renderFieldHint() {
   const puzzle = currentView.currentPuzzle;
   const button = byId<HTMLButtonElement>("fieldHintButton");
   const hintText = byId("fieldHint");
+  if (currentView.exploration.roomId) {
+    button.hidden = true; hintText.hidden = true; return;
+  }
+  button.hidden = false;
   if (currentView.accessHint) {
     button.hidden = true;
     hintText.hidden = false;
@@ -470,8 +495,9 @@ function openComplete(level: LevelDefinition, view: CampaignView) {
   showOverlay(completeOverlay);
 }
 
+const blockingOverlays = () => [campaignOverlay, puzzleOverlay, codeOverlay, deathOverlay, completeOverlay, byId("doorOverlay")];
 function openDrawer() {
-  if (game.isInDeathSequence()) return;
+  if (!canOpenDrawer(blockingOverlays(), game.isInDeathSequence())) return;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   byId("menuButton").setAttribute("aria-expanded", "true");
@@ -482,16 +508,7 @@ function closeDrawer() {
   drawer.classList.remove("open");
   drawer.setAttribute("aria-hidden", "true");
   byId("menuButton").setAttribute("aria-expanded", "false");
-  if (
-    ![
-      campaignOverlay,
-      puzzleOverlay,
-      codeOverlay,
-      deathOverlay,
-      completeOverlay,
-    ].some((overlay) => !overlay.hidden && overlay.classList.contains("active"))
-  )
-    game.setPaused(false);
+  if (!hasVisibleModal(blockingOverlays())) game.setPaused(false);
   audio.play({ id: "ui.drawer.close" });
 }
 
@@ -532,6 +549,11 @@ byId("locateButton").addEventListener("click", () => {
   byId("minimapToggle").setAttribute("aria-label", "折叠探索地图");
   byId("minimapToggle").lastElementChild!.textContent = "−";
   game.locateCurrent();
+});
+byId("roomButton").addEventListener("click", () => {
+  byId("guideCard").classList.add("collapsed");
+  byId("objectiveButton").setAttribute("aria-expanded", "false");
+  game.visitRoom();
 });
 byId("minimapToggle").addEventListener("click", () => {
   const collapsed = byId("minimap").classList.toggle("collapsed");
@@ -728,7 +750,9 @@ byId("codeInput").addEventListener("keydown", (event) => {
     document.querySelector<HTMLButtonElement>("[data-key='enter']")?.click();
 });
 document.addEventListener("keydown", (event) => {
+  if (trapModalTab(event, byId("doorOverlay"), document.activeElement)) return;
   if (event.key !== "Escape") return;
+  if (!byId("doorOverlay").hidden) { byId("doorCancel").click(); return; }
   if (!puzzleOverlay.hidden && !puzzleCompleting) byId("puzzleClose").click();
   else if (!codeOverlay.hidden) byId("codeClose").click();
   else if (drawer.classList.contains("open")) closeDrawer();
@@ -749,35 +773,33 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("debug")) {
       `<button data-review-level="${index}">试玩 DAY ${level.day}</button>`,
   ).join("");
   app.append(review);
+  const prepareReview = () => {
+    [campaignOverlay, puzzleOverlay, codeOverlay, deathOverlay, completeOverlay, byId("doorOverlay")].forEach(element => {
+      element.classList.remove("active"); element.hidden = true;
+    });
+    drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true");
+    activePuzzle = null; puzzleCompleting = false;
+    byId("guideCard").classList.add("collapsed"); byId("objectiveButton").setAttribute("aria-expanded", "false");
+  };
   review.querySelectorAll<HTMLButtonElement>("button").forEach((button) =>
     button.addEventListener("click", () => {
-      [
-        campaignOverlay,
-        puzzleOverlay,
-        codeOverlay,
-        deathOverlay,
-        completeOverlay,
-      ].forEach(hideOverlay);
-      drawer.classList.remove("open");
-      activePuzzle = null;
-      puzzleCompleting = false;
+      prepareReview();
       selectedLevel = Number(button.dataset.reviewLevel);
       game.startLevel(selectedLevel, true);
     }),
   );
+  for (const level of LEVELS) {
+    const button = document.createElement("button");
+    button.textContent = `验收室内 DAY ${level.day}`;
+    button.addEventListener("click", () => {
+      prepareReview(); selectedLevel = level.day - 1; game.previewRoom(selectedLevel);
+    });
+    review.append(button);
+  }
   const accident = document.createElement("button");
   accident.textContent = "评审招牌事故";
   accident.addEventListener("click", () => {
-    [
-      campaignOverlay,
-      puzzleOverlay,
-      codeOverlay,
-      deathOverlay,
-      completeOverlay,
-    ].forEach(hideOverlay);
-    drawer.classList.remove("open");
-    activePuzzle = null;
-    puzzleCompleting = false;
+    prepareReview();
     game.previewSignAccident();
   });
   review.append(accident);

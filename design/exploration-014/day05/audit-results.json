@@ -1,0 +1,150 @@
+{
+  "day": 5,
+  "counts": {
+    "outside": 3,
+    "inside": 10,
+    "rewards": 5,
+    "photos": 2,
+    "achievements": 2,
+    "animals": 1
+  },
+  "sourceSha256": "914de443de8327cb4539b322e90a1eafb4757961d16be62da8e0df5cdd98f5e8",
+  "results": [
+    {
+      "name": "content and dependency graph",
+      "status": "PASS"
+    },
+    {
+      "name": "outdoor doorway reachable without main flags",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-reeds outdoor stance",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-dock-photo outdoor stance",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-dog outdoor stance",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-recipe room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-fruit room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-wash room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-simmer room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-preserve room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-jam-card room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-leaf-print room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-letters room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-mail room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-tea-photo room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "return room round trip",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked stove",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked sink",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked jar shelf",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked bar",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked pillar",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked desk",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked chair",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked east shelf",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked tea table",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked west cushion",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked east cushion",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked west door wall",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked east door post",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked back wall",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked front wall",
+      "status": "PASS"
+    },
+    {
+      "name": "d05-dog patrol loop",
+      "status": "PASS"
+    },
+    {
+      "name": "PNG sources, baked polygons and asset bounds",
+      "status": "PASS"
+    },
+    {
+      "name": "actual chain rejects missing recipe and wrong order; rewards are idempotent",
+      "status": "PASS"
+    }
+  ]
+}

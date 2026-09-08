@@ -7,6 +7,11 @@ import { SceneRaster } from "./SceneRaster";
 import { SpriteAtlas } from "./SpriteAtlas";
 import { entitiesFor, entityDepth, type Entity } from "./entities";
 import { drawBakedObject, drawPlacedSprite } from "./objectRendering";
+import { EXPLORATION_PACKS } from "./exploration/packs";
+import { allDiscoveries, discoveryEntity, roomPortal, settleDiscovery, earnedAchievements } from "./exploration/discoveries";
+import type { RoomDefinition } from "./exploration/schema";
+import { restoreCampaignSave } from "./campaignSave";
+import { footstepFor } from "./footsteps";
 import {
   HazardDirector,
   DEATH_TIMING,
@@ -53,6 +58,19 @@ export class CampaignGame {
   private nav = buildWorldNavigation(WORLDS[0], new Set());
   private levelIndex = 0;
   private level = LEVELS[0];
+  private room: RoomDefinition | null = null;
+  private sceneRevision = 0;
+  private discoveryFlags = new Set<string>();
+  private visitedRooms = new Set<string>();
+  private roomExplored: Record<string, number[]> = {};
+  private outsideExplored = new Set<number>();
+  private returnPoint = p(0, 0);
+  private discoveryHistory: string[] = [];
+  private critters = new Map<string, { point: Point; route: Point[]; next: number; direction: number; stride: number; wait: number }>();
+  private get pack() { return EXPLORATION_PACKS.find(pack => pack.day === this.level.day); }
+  private get activeWorld() { return this.room?.world ?? WORLDS[this.levelIndex]; }
+  private get activeHazards() { return this.room ? [] : this.level.hazards; }
+  private get mapImage() { return this.images.get(this.room?.id ?? this.level.id); }
   private entities: Entity[] = entitiesFor(this.level);
   private player = { ...this.level.playerStart };
   private facing: Facing = "down";
@@ -124,6 +142,13 @@ export class CampaignGame {
       image.src = level.background;
       this.images.set(level.id, image);
     });
+    EXPLORATION_PACKS.forEach(pack => {
+      const image = new Image(); image.src = pack.room.background;
+      this.images.set(pack.room.id, image);
+      allDiscoveries(pack).forEach(node => [node.art, node.afterArt].forEach(art => {
+        if (art) this.sceneRaster.preload(art).catch(() => hooks.onToast("探索物件图片未加载，请刷新重试。", "danger"));
+      }));
+    });
     this.atlas.ready.catch(() =>
       hooks.onToast("部分角色素材未载入，请刷新重试。", "danger"),
     );
@@ -138,6 +163,111 @@ export class CampaignGame {
     this.bindInput();
     requestAnimationFrame((time) => this.frame(time));
   }
+  private refreshEntities() {
+    const pack = this.pack;
+    this.entities = this.room
+      ? [...this.room.nodes.map(discoveryEntity), roomPortal(this.room, true)]
+      : [...entitiesFor(this.level), ...(pack ? [...pack.outside.map(discoveryEntity), roomPortal(pack.room, false)] : [])];
+    this.critters.clear();
+    this.entities.filter(e => e.discovery?.animal).forEach(e => this.critters.set(e.id,
+      { point: { x: e.x, y: e.y }, route: [], next: 0, direction: 1, stride: 0, wait: 1 }));
+  }
+  private explorationView(): CampaignView["exploration"] {
+    const nodes = allDiscoveries(this.pack);
+    const earned = new Set(earnedAchievements(this.pack, this.discoveryFlags).map(a => a.id));
+    return { roomId: this.room?.id ?? null, sceneName: this.room?.name ?? this.level.name,
+      roomName: this.pack?.room.name, flags: [...this.discoveryFlags], visited: this.visitedRooms.size,
+      items: nodes.filter(n => n.reward && this.discoveryFlags.has(n.id)).map(n => ({ id: n.id, ...n.reward! })),
+      discoveries: nodes.map(n => ({ id: n.id, title: n.title,
+        location: this.pack?.outside.includes(n) ? "大地图" : this.pack?.room.name ?? "",
+        description: this.discoveryFlags.has(n.id) ? n.result : n.description, done: this.discoveryFlags.has(n.id) })),
+      achievements: this.pack?.achievements.map(a => ({ ...a, done: earned.has(a.id) })) ?? [],
+      album: EXPLORATION_PACKS.map(pack => {
+        const flags = pack.day === this.level.day ? this.discoveryFlags : new Set(this.save.levels[LEVELS[pack.day - 1].id]?.discoveries ?? []);
+        const collectible = allDiscoveries(pack).filter(n => n.reward);
+        return { day: pack.day, title: pack.theme, found: collectible.filter(n => flags.has(n.id)).length, total: collectible.length,
+          visited: pack.day === this.level.day ? this.visitedRooms.has(pack.room.id) : Boolean(this.save.levels[LEVELS[pack.day - 1].id]?.visitedRooms?.includes(pack.room.id)) };
+      }) };
+  }
+  /** Navigate to the physical doorway; the HUD never teleports through furniture. */
+  visitRoom() {
+    if (this.paused || this.dead || !this.pack) return;
+    const portal = this.entities.find(e => e.portal);
+    if (portal) this.navigate(portal.approach, portal, true);
+  }
+  private switchRoom(room: RoomDefinition | null) {
+    if (room) {
+      const image = this.images.get(room.id);
+      if (!image?.complete || !image.naturalWidth) {
+        this.hooks.onToast("房间图片尚未载入，请稍后再进；你仍在门外，可继续探索。", "danger");
+        return;
+      }
+      this.returnPoint = { ...this.player };
+      this.checkpoint = { ...this.returnPoint };
+      this.outsideExplored = this.explored;
+      this.room = room;
+      this.explored = new Set(this.roomExplored[room.id] ?? []);
+      this.visitedRooms.add(room.id);
+      this.player = { ...room.world.spawn };
+    } else {
+      if (!this.room) return;
+      this.roomExplored[this.room.id] = [...this.explored];
+      this.room = null;
+      this.explored = this.outsideExplored;
+      this.player = { ...this.returnPoint };
+    }
+    this.sceneRevision++;
+    this.discoveryHistory = [];
+    this.keys.clear(); this.pointer = null; this.hovered = null; this.footsteps = [];
+    this.refreshEntities(); this.rebuildNavigation(); this.discovered.clear();
+    this.centerCamera(); this.reveal(); this.graceUntil = this.elapsedSeconds + 3;
+    this.persist(); this.emitView();
+    this.hooks.onAudio({ id: "mechanism.latch", caption: room ? "踏过门槛，脚步在屋内轻轻回响" : "穿过门口，回到熟悉的路边" });
+    this.hooks.onToast(room ? room.intro : "已回到进门时的位置。房间里的发现保留在日志中。");
+  }
+  private interactDiscovery(entity: Entity) {
+    const node = entity.discovery!;
+    if (distance(this.player, entity.approach) > 12) return;
+    const before = earnedAchievements(this.pack, this.discoveryFlags);
+    const result = settleDiscovery(node, allDiscoveries(this.pack), this.discoveryFlags, this.discoveryHistory);
+    this.hooks.onToast(result.message, result.status === "new" ? "success" : "normal");
+    this.hooks.onAudio({ id: result.status === "locked" || result.status === "sequence" ? "interaction.blocked"
+      : node.kind === "photo" ? "interaction.camera" : node.animal === "cat" ? "animal.cat"
+      : node.animal === "dog" ? "animal.dog" : node.animal === "mouse" ? "animal.mouse" : node.reward?.category === "tool" ? "item.pickup.tool"
+      : node.kind === "restore" ? "mechanism.latch" : node.reward ? "item.pickup.clue" : /铃|音叉/.test(node.title) ? "memory.cup" : "ui.click.soft",
+      caption: node.animal ? `${node.title}靠近闻了闻，安心地停了一会儿` : undefined });
+    if (result.status !== "new") return;
+    this.doneAt.set(node.id, this.elapsedSeconds);
+    this.rebuildNavigation(); this.persist(); this.emitView();
+    const newlyEarned = earnedAchievements(this.pack, this.discoveryFlags).filter(a => !before.some(b => b.id === a.id));
+    if (newlyEarned.length) this.hooks.onAudio({ id: "achievement.unlock", caption: `地方成就：${newlyEarned.map(a => a.title).join("、")} · 已存入日志` });
+  }
+  private updateCritters(delta: number) {
+    for (const entity of this.entities) {
+      const animal = this.critters.get(entity.id), patrol = entity.discovery?.patrol;
+      if (!animal || !patrol?.length) continue;
+      // Freeze while approached so chasing a moving hotspot never blocks interaction.
+      if (this.focus?.id === entity.id || this.pending?.id === entity.id) continue;
+      animal.wait -= delta;
+      if (animal.wait > 0) continue;
+      if (!animal.route.length) {
+        const target = patrol[animal.next++ % patrol.length];
+        animal.route = this.nav.route(animal.point, target, () => false, 0);
+        if (!animal.route.length) { animal.wait = 1; continue; }
+      }
+      const target = animal.route[0], length = distance(animal.point, target), step = Math.min(length, delta * (entity.discovery?.animal === "mouse" ? 30 : 20));
+      if (length < 0.3) animal.route.shift();
+      else {
+        const next = p(animal.point.x + (target.x - animal.point.x) * step / length, animal.point.y + (target.y - animal.point.y) * step / length);
+        if (this.nav.visible(animal.point, next)) {
+          if (Math.abs(next.x - animal.point.x) > .05) animal.direction = next.x > animal.point.x ? 1 : -1;
+          animal.point = next; animal.stride += step;
+        } else animal.route = [];
+      }
+      entity.approach = { ...animal.point };
+      if (!animal.route.length) animal.wait = 1.5 + animal.next % 3;
+    }
+  }
   getSave() {
     return structuredClone(this.save);
   }
@@ -148,6 +278,7 @@ export class CampaignGame {
     const currentPuzzle = this.currentPuzzle();
     const access = this.accessMechanism(currentPuzzle?.id);
     return {
+      exploration: this.explorationView(),
       levelIndex: this.levelIndex,
       level: this.level,
       solved: [...this.solved],
@@ -165,7 +296,7 @@ export class CampaignGame {
         .filter((q) => this.solved.has(q.id))
         .map((q) => q.rewardItem),
       currentPuzzle,
-      objective: access
+      objective: this.room ? `自由探索 · ${this.room.name}` : access
         ? `操作 · ${access.name}`
         : currentPuzzle
           ? `调查 · ${currentPuzzle.title}`
@@ -177,12 +308,21 @@ export class CampaignGame {
     };
   }
   startLevel(index: number, resetRun = false) {
+    this.sceneRevision++;
+    this.room = null;
     this.started = true;
     this.levelIndex = clamp(Math.floor(index), 0, 7);
     this.level = getLevel(this.levelIndex);
     const world = WORLDS[this.levelIndex];
-    this.entities = entitiesFor(this.level);
+    this.refreshEntities();
     const saved = resetRun ? undefined : this.save.levels[this.level.id];
+    // Collection is a travel album, not a consumable run reward. Replaying a day retains it.
+    const album = this.save.levels[this.level.id];
+    const ids = new Set(allDiscoveries(this.pack).map(node => node.id));
+    this.discoveryFlags = new Set((album?.discoveries ?? []).filter(id => ids.has(id)));
+    this.visitedRooms = new Set((album?.visitedRooms ?? []).filter(id => id === this.pack?.room.id));
+    this.roomExplored = { ...album?.roomExplored };
+    this.discoveryHistory = [];
     this.solved = new Set(saved?.solved ?? []);
     this.worldFlags = new Set(
       (saved?.worldFlags ?? []).filter((id) =>
@@ -205,6 +345,7 @@ export class CampaignGame {
         (n) => Number.isInteger(n) && n >= 0 && n < FOG_COLS * FOG_ROWS,
       ),
     );
+    this.outsideExplored = this.explored;
     this.discovered.clear();
     const reachable = (q: Point) =>
       this.nav.isWalkable(q) &&
@@ -340,6 +481,14 @@ export class CampaignGame {
     return this.dead;
   }
   /** Called only by the explicit development review toolbar, never by normal play. */
+  previewRoom(index: number) {
+    this.startLevel(index, true);
+    if (!this.pack) return;
+    // This is a developer inspection shortcut, not the normal entrance path.
+    this.player = { ...this.pack.room.entry.approach };
+    this.switchRoom(this.pack.room);
+  }
+  /** Called only by the explicit development review toolbar, never by normal play. */
   previewSignAccident() {
     this.startLevel(0, true);
     this.player = p(870, 340);
@@ -370,6 +519,7 @@ export class CampaignGame {
     this.sideTasks.clear();
     this.explored.clear();
     this.hintStages = {};
+    this.discoveryFlags.clear(); this.visitedRooms.clear(); this.roomExplored = {}; this.room = null;
     localStorage.removeItem(SAVE_KEY);
   }
   destroy() {
@@ -381,10 +531,10 @@ export class CampaignGame {
     return (puzzle.requires ?? []).every((id) => this.solved.has(id));
   }
   private flags() {
-    return new Set([...this.solved, ...this.worldFlags]);
+    return new Set([...this.solved, ...this.worldFlags, ...this.discoveryFlags]);
   }
   private rebuildNavigation() {
-    this.nav = buildWorldNavigation(WORLDS[this.levelIndex], this.flags());
+    this.nav = buildWorldNavigation(this.activeWorld, this.flags());
     this.cancel();
   }
   private accessMechanism(puzzleId?: string) {
@@ -395,6 +545,7 @@ export class CampaignGame {
     return world.mechanisms.find((m) => m.id === id);
   }
   private visibleEntity(entity: Entity) {
+    if (entity.discovery?.art && !entity.discovery.baked && this.done(entity) && !entity.discovery.afterArt && !entity.discovery.animal) return false;
     return (
       entity.mechanism?.kind !== "cache" ||
       (entity.mechanism.requires ?? []).every((id) => this.flags().has(id))
@@ -615,6 +766,8 @@ export class CampaignGame {
     this.dragging = false;
   }
   private hit(q: Point) {
+    const entry = !this.room ? this.pack?.room.entry : undefined;
+    if (entry?.sharedTarget && contains(q, entry.baked)) return this.entities.find(e => e.portal) ?? null;
     return (
       [...this.entities]
         .filter(
@@ -625,6 +778,7 @@ export class CampaignGame {
         .sort((a, b) => entityDepth(b, this.entityPosition(b)) - entityDepth(a, this.entityPosition(a)))
         .find((entity) => {
           const pos = this.entityPosition(entity);
+          if (entity.discovery?.art) return this.sceneRaster.hit(this.done(entity) ? entity.discovery.afterArt ?? entity.discovery.art : entity.discovery.art, pos, q);
           if (entity.mechanism)
             return hitMechanism(this.sceneRaster, entity.mechanism, this.done(entity), q);
           if (entity.baked) return contains(q, entity.baked);
@@ -632,7 +786,7 @@ export class CampaignGame {
             entity.atlas,
             this.entityFrame(entity),
             entity.height,
-            q.x - pos.x,
+            (q.x - pos.x) * (entity.discovery?.animal ? this.critters.get(entity.id)?.direction ?? 1 : 1),
             q.y - pos.y,
             entity.visual?.maxWidth,
           );
@@ -640,6 +794,8 @@ export class CampaignGame {
     );
   }
   private done(entity: Entity) {
+    if (entity.discovery) return this.discoveryFlags.has(entity.id);
+    if (entity.portal) return false;
     if (entity.mechanism) return mechanismOpen(entity.mechanism, this.flags());
     return entity.type === "puzzle"
       ? this.solved.has(entity.id)
@@ -648,11 +804,16 @@ export class CampaignGame {
         : this.solved.size === 4;
   }
   private entityFrame(entity: Entity) {
+    if (entity.discovery?.animal) {
+      const animal = this.critters.get(entity.id);
+      return entity.frame + (animal?.route.length ? Math.floor(animal.stride / 9) % 4 : 0);
+    }
     return this.done(entity) && entity.doneFrame !== undefined
       ? entity.doneFrame
       : entity.frame;
   }
   private entityPosition(entity: Entity) {
+    if (entity.discovery?.animal) return this.critters.get(entity.id)?.point ?? p(entity.x, entity.y);
     const position = p(entity.x, entity.y);
     if (!this.done(entity)) return position;
     const progress = this.reducedMotion
@@ -700,7 +861,7 @@ export class CampaignGame {
           entity?.mechanism?.hint ??
             this.accessMechanism(entity?.id)?.hint ??
             (() => {
-              const obstacle = WORLDS[this.levelIndex].obstacles.find((o) =>
+              const obstacle = this.activeWorld.obstacles.find((o) =>
                 contains(q, o.polygon),
               );
               return obstacle
@@ -719,7 +880,7 @@ export class CampaignGame {
     if (sound) this.hooks.onAudio({ id: "nav.route.accept" });
   }
   private blocked = (q: Point) =>
-    this.level.hazards.some((h) => {
+    this.activeHazards.some((h) => {
       if (this.phase(h) !== "active" || !inHazard(q, h.rect, 9)) return false;
       // Only someone already inside the lethal footprint may escape; the safety margin
       // must not accidentally grant permission to walk into the hazard.
@@ -761,7 +922,9 @@ export class CampaignGame {
           ? 1.15
           : mechanism?.kind === "cache"
             ? 0.55
-            : 0.4;
+            : entity.discovery?.kind === "restore" ? 0.85
+              : entity.discovery?.kind === "photo" ? 0.5
+                : entity.discovery?.kind === "pet" ? 0.65 : 0.4;
     this.actionTime = this.actionDuration;
     if (mechanism?.kind === "lever")
       this.hooks.onAudio({
@@ -772,6 +935,31 @@ export class CampaignGame {
     this.face(entity.x - this.player.x, entity.y - this.player.y);
   }
   private interact(entity: Entity) {
+    if (entity.portal) {
+      if (entity.portal === "outside") this.switchRoom(null);
+      else {
+        const shared = this.pack?.room.entry.sharedTarget;
+        const task = shared ? this.entities.find(e => e.id === shared) : undefined;
+        if (task && this.hooks.onDoorChoice) {
+          const room = this.pack!.room, revision = this.sceneRevision;
+          let handled = false;
+          const choose = (action: () => void) => {
+            // A cancelled dialog or a stale callback from another day must not teleport the player.
+            if (handled || !this.paused || this.dead || revision !== this.sceneRevision) return;
+            handled = true;
+            this.setPaused(false);
+            action();
+          };
+          this.setPaused(true);
+          this.hooks.onDoorChoice(room.name,
+            () => choose(() => this.switchRoom(room)),
+            () => choose(() => distance(this.player, task.approach) <= 10
+              ? this.interact(task) : this.navigate(task.approach, task, true)));
+        } else if (this.pack) this.switchRoom(this.pack.room);
+      }
+      return;
+    }
+    if (entity.discovery) { this.interactDiscovery(entity); return; }
     if (entity.mechanism) {
       const m = entity.mechanism;
       if (
@@ -889,6 +1077,7 @@ export class CampaignGame {
   private update(delta: number) {
     if (this.paused || this.dead || document.hidden) return;
     this.elapsedSeconds += delta;
+    this.updateCritters(delta);
     this.destinationAge = Math.max(0, this.destinationAge - delta);
     this.footsteps = this.footsteps.filter((f) => {
       f.life -= delta;
@@ -999,14 +1188,8 @@ export class CampaignGame {
           life: 1.3,
           angle: Math.atan2(this.player.y - before.y, this.player.x - before.x),
         });
-        const region = this.nav.regionAt(this.player),
-          wood = /桥|码头/.test(region);
         this.hooks.onAudio({
-          id: wood
-            ? "footstep.wood"
-            : /花|草|山/.test(region)
-              ? "footstep.grass"
-              : "footstep.stone",
+          id: footstepFor(this.nav.regionAt(this.player), this.player, this.room?.id),
         });
       }
     }
@@ -1057,7 +1240,7 @@ export class CampaignGame {
     }
   }
   private updateHazards(delta: number) {
-    for (const hazard of this.level.hazards) {
+    for (const hazard of this.activeHazards) {
       const center = hazardCenter(hazard),
         profile = hazardProfile(hazard);
       const presented =
@@ -1181,7 +1364,7 @@ export class CampaignGame {
     ctx.fillRect(0, 0, this.width, this.height);
     ctx.save();
     ctx.translate(-this.camera.x, -this.camera.y);
-    const map = this.images.get(this.level.id);
+    const map = this.mapImage;
     if (map?.complete && map.naturalWidth) {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(map, 0, 0, 1600, 900);
@@ -1189,7 +1372,7 @@ export class CampaignGame {
     this.drawCrossing();
     this.drawScenePatches(ctx);
     this.drawAtmosphere();
-    this.level.hazards.forEach((h) => this.drawHazard(h));
+    this.activeHazards.forEach((h) => this.drawHazard(h));
     this.footsteps.forEach((f) => {
       ctx.save();
       ctx.translate(f.x, f.y);
@@ -1207,7 +1390,7 @@ export class CampaignGame {
           draw: () => this.drawEntity(entity),
         })),
       { y: this.player.y, draw: () => this.drawPlayer() },
-      ...WORLDS[this.levelIndex].occluders.map((o) => ({
+      ...this.activeWorld.occluders.map((o) => ({
         y: o.depth,
         draw: () => {
           if (!map?.complete || !map.naturalWidth) return;
@@ -1222,7 +1405,7 @@ export class CampaignGame {
           ctx.restore();
         },
       })),
-      ...this.level.hazards.map((h) => ({
+      ...this.activeHazards.map((h) => ({
         y: hazardCenter(h).y,
         draw: () =>
           drawHazardObject(ctx, h, this.hazards.state(h), this.reducedMotion, p => this.nav.isWalkable(p)),
@@ -1265,6 +1448,8 @@ export class CampaignGame {
     if (new URLSearchParams(location.search).has("debug"))
       this.canvas.dataset.state = JSON.stringify({
         level: this.level.id,
+        room: this.room?.id ?? null,
+        discoveries: [...this.discoveryFlags],
         player: this.player,
         facing: this.facing,
         path: this.path,
@@ -1286,7 +1471,7 @@ export class CampaignGame {
         death: this.deathScene
           ? { stage: deathStage(this.deathScene.age), age: this.deathScene.age }
           : null,
-        hazards: this.level.hazards.map((h) => ({
+        hazards: this.activeHazards.map((h) => ({
           id: h.id,
           ...this.hazards.state(h),
         })),
@@ -1393,7 +1578,7 @@ export class CampaignGame {
   }
   private drawCrossing() {
     const flags = this.flags();
-    for (const surface of WORLDS[this.levelIndex].surfaces)
+    for (const surface of this.activeWorld.surfaces)
       if (!surface.requires || flags.has(surface.requires))
         drawSurface(this.ctx, this.sceneRaster, surface);
   }
@@ -1402,6 +1587,19 @@ export class CampaignGame {
       pos = this.entityPosition(entity),
       done = this.done(entity);
     const hover = !this.paused && this.hovered?.id === entity.id;
+    if (entity.discovery?.animal) {
+      const animal = this.critters.get(entity.id);
+      ctx.save(); ctx.fillStyle = "rgba(23, 32, 24, 0.2)";
+      ctx.beginPath(); ctx.ellipse(pos.x, pos.y - 1, entity.height * .34, entity.height * .1, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      ctx.save(); ctx.translate(pos.x, pos.y); ctx.scale(animal?.direction ?? 1, 1);
+      this.atlas.draw(ctx, "critters", this.entityFrame(entity), 0, 0, entity.height, hover, false, entity.visual?.maxWidth ?? 48);
+      ctx.restore(); return;
+    }
+    if (entity.discovery?.art) {
+      const art = done ? entity.discovery.afterArt : entity.discovery.art;
+      if (art) this.sceneRaster.draw(ctx, art, pos, hover);
+      return;
+    }
     if (entity.mechanism) {
       const controlling =
         this.pending?.id === entity.id ||
@@ -1453,6 +1651,8 @@ export class CampaignGame {
   }
   private drawScenePatches(ctx: CanvasRenderingContext2D) {
     for (const entity of this.entities)
+      if (entity.discovery?.afterArt && entity.baked && this.done(entity)) this.sceneRaster.draw(ctx, entity.discovery.afterArt, entity);
+    for (const entity of this.entities)
       if (entity.mechanism && this.visibleEntity(entity)) {
         const age = this.elapsedSeconds - (this.doneAt.get(entity.mechanism.controlledBy ?? entity.id) ?? -99);
         drawMechanismPatch(ctx, this.sceneRaster, entity.mechanism, this.done(entity),
@@ -1460,9 +1660,9 @@ export class CampaignGame {
       }
   }
   private redrawWorldBacking(ctx: CanvasRenderingContext2D) {
-    const map = this.images.get(this.level.id), flags = this.flags();
+    const map = this.mapImage, flags = this.flags();
     if (map?.complete && map.naturalWidth) ctx.drawImage(map, 0, 0, 1600, 900);
-    for (const surface of WORLDS[this.levelIndex].surfaces)
+    for (const surface of this.activeWorld.surfaces)
       if (!surface.requires || flags.has(surface.requires)) drawSurface(ctx, this.sceneRaster, surface);
     this.drawScenePatches(ctx);
   }
@@ -1474,6 +1674,7 @@ export class CampaignGame {
     });
   }
   private drawAtmosphere() {
+    if (this.room) return;
     if (this.reducedMotion) return;
     const ctx = this.ctx,
       t = this.elapsedSeconds;
@@ -1506,7 +1707,7 @@ export class CampaignGame {
     const ctx = this.miniContext,
       w = this.minimap.width,
       h = this.minimap.height,
-      map = this.images.get(this.level.id);
+      map = this.mapImage;
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#142b33";
     ctx.fillRect(0, 0, w, h);
@@ -1515,7 +1716,7 @@ export class CampaignGame {
       sy = h / 900;
     ctx.save();
     ctx.scale(sx, sy);
-    for (const surface of WORLDS[this.levelIndex].surfaces)
+    for (const surface of this.activeWorld.surfaces)
       if (!surface.requires || this.flags().has(surface.requires))
         drawSurface(ctx, this.sceneRaster, surface);
     for (const entity of this.entities)
@@ -1549,7 +1750,7 @@ export class CampaignGame {
           : "#f4da88";
       ctx.fillRect(pos.x * sx - 1.5, pos.y * sy - 1.5, 3, 3);
     });
-    this.level.hazards.forEach((hazard) => {
+    this.activeHazards.forEach((hazard) => {
       const center = p(
         hazard.rect.x + hazard.rect.width / 2,
         hazard.rect.y + hazard.rect.height / 2,
@@ -1570,7 +1771,7 @@ export class CampaignGame {
     });
     if (this.markedUntil > this.elapsedSeconds) {
       const target =
-        this.accessMechanism(this.currentPuzzle()?.id)?.position ??
+        (this.room ? this.entities.find(e => e.discovery && !this.done(e)) ?? this.activeWorld.exit : undefined) ?? this.accessMechanism(this.currentPuzzle()?.id)?.position ??
         this.currentPuzzle()?.position ??
         this.level.exit;
       ctx.strokeStyle = "#ffe2a0";
@@ -1620,12 +1821,16 @@ export class CampaignGame {
   }
   private persist() {
     if (!this.started) return;
+    if (this.room) this.roomExplored[this.room.id] = [...this.explored];
     this.save.levels[this.level.id] = {
       solved: [...this.solved],
       sideTasks: [...this.sideTasks],
       hintsUsed: this.hintCount,
       deaths: this.deathCount,
-      explored: [...this.explored],
+      explored: [...(this.room ? this.outsideExplored : this.explored)],
+      discoveries: [...this.discoveryFlags],
+      visitedRooms: [...this.visitedRooms],
+      roomExplored: this.roomExplored,
       checkpoint: { ...this.checkpoint },
       hintStages: { ...this.hintStages },
       layoutRevision: LAYOUT_REVISION,
@@ -1638,32 +1843,10 @@ export class CampaignGame {
     }
   }
   private loadSave(): CampaignSave {
-    const fresh: CampaignSave = {
-      version: 2,
-      unlocked: 1,
-      completed: [],
-      stamps: [],
-      levels: {},
-    };
     try {
-      const parsed = JSON.parse(
-        localStorage.getItem(SAVE_KEY) ?? "null",
-      ) as CampaignSave | null;
-      if (parsed?.version !== 2) return fresh;
-      const completed = Array.isArray(parsed.completed)
-        ? parsed.completed.filter((id) => LEVELS.some((l) => l.id === id))
-        : [];
-      return {
-        version: 2,
-        unlocked: clamp(Number(parsed.unlocked) || 1, 1, 8),
-        completed,
-        stamps: LEVELS.filter((l) => completed.includes(l.id)).map(
-          (l) => l.stamp,
-        ),
-        levels: parsed.levels ?? {},
-      };
+      return restoreCampaignSave(JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null"));
     } catch {
-      return fresh;
+      return restoreCampaignSave(null);
     }
   }
 }

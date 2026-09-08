@@ -2,7 +2,8 @@ export type AtlasName =
   | "traveler-v2"
   | "world-props"
   | "life-actors"
-  | "utility-props";
+  | "utility-props"
+  | "critters";
 interface Sprite {
   image: HTMLCanvasElement;
   mask: HTMLCanvasElement;
@@ -19,6 +20,7 @@ export class SpriteAtlas {
           "world-props",
           "life-actors",
           "utility-props",
+          "critters",
         ] as AtlasName[]
       ).map((name) => this.load(name)),
     ).then(() => undefined);
@@ -28,11 +30,11 @@ export class SpriteAtlas {
     image.src = `/assets/sprites/${name}.png`;
     await image.decode();
     const xs =
-      name === "traveler-v2"
+      name === "critters" ? [0, 1, 2, 3, 4].map(i => Math.floor(image.naturalWidth * i / 4)) : name === "traveler-v2"
         ? [0, 355, 624, 899, 1254]
         : [0, 313, 627, 940, 1254];
     const ys =
-      name === "traveler-v2"
+      name === "critters" ? [0, 1, 2, 3, 4].map(i => Math.floor(image.naturalHeight * i / 4)) : name === "traveler-v2"
         ? [0, 331, 617, 908, 1254]
         : name === "world-props"
           ? [0, 326, 646, 917, 1254]

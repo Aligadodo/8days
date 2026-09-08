@@ -2,10 +2,13 @@ import type { AtlasName } from "./SpriteAtlas";
 import type { LevelDefinition, Point } from "./types";
 import { WORLDS, type WorldMechanism, type ObjectVisual } from "./worldDesign";
 import type { Polygon } from "./navigation";
+import type { DiscoveryNode } from "./exploration/schema";
 
 export interface Entity extends Point {
   id: string;
-  type: "puzzle" | "side" | "exit" | "mechanism";
+  type: "puzzle" | "side" | "exit" | "mechanism" | "discovery" | "portal";
+  discovery?: DiscoveryNode;
+  portal?: string;
   approach: Point;
   baked?: Polygon;
   mechanism?: WorldMechanism;

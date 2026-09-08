@@ -1,0 +1,30 @@
+{
+  "passed": true,
+  "counts": {
+    "outside": 3,
+    "indoor": 9,
+    "rewards": 4,
+    "photos": 2,
+    "achievements": 2,
+    "animals": 1,
+    "obstacles": 15
+  },
+  "checks": [
+    "outdoor entry and discoveries reachable",
+    "indoor approaches and return reachable",
+    "every route segment visible",
+    "all furniture/wall centers blocked",
+    "closed patrol cycle navigable",
+    "dependencies and sequence valid",
+    "wrong order rejected",
+    "rewards idempotent",
+    "achievement conditions achievable",
+    "PNG dimensions and resource paths",
+    "shared runtime enter interact return replay with isolated memory storage"
+  ],
+  "notVerified": [
+    "browser visual composition",
+    "real browser save migration/death/pause/load failure",
+    "main registry integration"
+  ]
+}

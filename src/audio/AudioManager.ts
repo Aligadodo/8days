@@ -19,6 +19,8 @@ export type AudioEventId =
   | "hazard.train.hit"
   | "player.soul.rise"
   | "animal.cat"
+  | "animal.dog"
+  | "animal.mouse"
   | "interaction.phone"
   | "interaction.camera"
   | "ui.click.soft"
@@ -261,6 +263,13 @@ export class AudioManager {
       case "animal.cat":
         this.sweep(700, 1020, 0.12, 0.025, pan, "sine");
         this.sweep(990, 590, 0.25, 0.026, pan, "sine");
+        break;
+      case "animal.dog":
+        this.sweep(260, 170, 0.10, 0.018, pan, "triangle");
+        this.noise(0.06, 0.012, 700, pan);
+        break;
+      case "animal.mouse":
+        this.sweep(1800, 2400, 0.07, 0.012, pan, "sine");
         break;
       case "interaction.phone":
         this.chord([350, 440], 0.16, 0.022, pan);

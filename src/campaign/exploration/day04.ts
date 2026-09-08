@@ -1,0 +1,171 @@
+import type { ExplorationPack, DiscoveryNode } from "./schema";
+import { world, area, box, obstacle } from "../worldSchema";
+import { polygon } from "../navigation";
+
+// Authored after inspecting water-observatory.png (1672×941), registered to 1600×900.
+const p = (x: number, y: number) => ({ x, y });
+const shape = (points: number[][]) => polygon(points);
+const nodes: DiscoveryNode[] = [
+  {
+    id: "d04-stones", title: "三枚河床标本", kind: "inspect",
+    position: p(486, 320), approach: p(486, 380),
+    baked: shape([[345,281],[610,280],[622,319],[344,321]]),
+    visual: { mount: "table", support: "瀑景窗下长桌上的灰、蓝、绿三枚原生岩石标本；站在长桌南侧", depth: 360 },
+    description: "灰石棱角分明，蓝石表面圆滑，绿石覆着薄苔。它们来自不同的水流位置，不能用颜色判断能不能踩。",
+    result: "记下河床观察：急流磨圆石头，苔面即使漂亮也可能湿滑。标本留在公共展台。",
+  },
+  {
+    id: "d04-journal", title: "水务员的图解手册", kind: "inspect",
+    position: p(383, 450), approach: p(338, 545),
+    baked: shape([[334,400],[390,396],[438,404],[438,451],[387,447],[333,450]]),
+    visual: { mount: "table", support: "左侧阅读桌上摊开的图解本；从座椅左侧的地砖阅读", depth: 520 },
+    description: "插图画着仪表、绳圈和纸卷。旁注写明：先看压力表确认供水仍在，再从工具台取盘根绳和扳手，旋紧记录器右侧小接头；纸上的断续线恢复连续后，才可取一段记录。不要转动墙上的主管阀。",
+    result: "检修步骤已抄入日志：看表 → 借工具 → 修右侧接头 → 留一段今日记录。供水主线不受影响。",
+  },
+  {
+    id: "d04-postcard", title: "一张留给旅人的瀑布卡", kind: "collect",
+    position: p(466, 446), approach: p(535, 473),
+    baked: shape([[452,417],[473,411],[484,441],[461,449]]),
+    visual: { mount: "table", support: "图解本右侧单独的小画卡，不将整张桌子作为拾取热区", depth: 520 },
+    description: "这张瀑布卡是供旅人翻看的公共留样。背面写着：欢迎拍下画面收入旅行册，让今天的平安一起回家；请把原卡留在桌上。",
+    result: "你拍下瀑布卡，在旅行册里收好一份影印留念；原卡放回桌面，继续供后来者翻看。",
+    reward: { title: "水声观测所·瀑布留样卡", category: "postcard" },
+  },
+  {
+    id: "d04-gauge", title: "观察主管压力表", kind: "inspect",
+    position: p(1019, 208), approach: p(1020, 390),
+    baked: shape([[969,116],[1064,114],[1071,204],[970,210]]),
+    visual: { mount: "wall", support: "检修台上方墙面原生压力表；从工作台前读表，不走进桌体", depth: 367 },
+    description: "表针仍指向有压力的刻度，主管有水。记录器右侧接头却有旧水痕：问题不在瀑布断流，而在记录器的小接头松脱。",
+    result: "确认供水正常。应依据图解手册处理小接头，不碰主管阀。",
+  },
+  {
+    id: "d04-cord", title: "借用盘根绳和短扳手", kind: "collect",
+    position: p(1007, 310), approach: p(1048, 390),
+    baked: shape([[930,269],[1063,262],[1072,288],[1020,312],[934,310]]),
+    visual: { mount: "table", support: "右后检修桌上的绳圈和短扳手，与上方墙表热区分开", depth: 370 },
+    description: "检修桌上留着盘根绳圈和短扳手，正是手册里画的小接头维护工具。手册允许取一小段盘根绳，短扳手可在屋内原位借用，维修后放回。",
+    result: "取下一小段盘根绳，记下短扳手的借用位置。背包保存工具借用凭记；余绳和待用扳手仍放在桌面。",
+    reward: { title: "观测所借用工具包", category: "tool" },
+  },
+  {
+    id: "d04-recorder", title: "修复记录器侧接头", kind: "restore",
+    position: p(1264, 337), approach: p(1280, 394),
+    baked: shape([[1248,299],[1273,297],[1278,329],[1266,345],[1249,337]]),
+    visual: { mount: "ground", support: "右侧黄铜记录器纸卷右边的小接头，站在机器东南侧蓝砖地面", depth: 383 },
+    requires: ["d04-journal", "d04-gauge", "d04-cord"],
+    afterArt: {
+      src: "/assets/exploration-014/day04/recorder-restored-source.png",
+      crop: { x: 1233, y: 301, width: 48, height: 37 },
+      width: 45.933014354066984, height: 35.38788522848034,
+      offset: p(-61.12918660287073, -13.726886291179596),
+    },
+    description: "这是手册所指的小接头，不是主管。先确认压力来源，再用盘根绳补上密封、用短扳手收紧；不能缺步骤强拧。",
+    result: "你取来短扳手收紧接头，再把它放回工具台。支路的细小漏气声停了，纸笔开始连续记录水声强弱。可以从纸卷撕口保留一段今日的记录，不会改变户外水位。",
+  },
+  {
+    id: "d04-chart", title: "留存今日水声曲线", kind: "collect",
+    position: p(1203, 329), approach: p(1205, 407),
+    baked: shape([[1179,275],[1225,274],[1237,321],[1180,328]]),
+    visual: { mount: "table", support: "记录器正面的白色纸卷；只绑定纸面，不覆盖右侧维修接头", depth: 383 },
+    requires: ["d04-recorder"],
+    description: "纸卷的撕口在这里。等记录器恢复工作，才能留下有意义的今日记录；不是随便捡一张纸。",
+    result: "截下一小段连续记录，纸卷仍可继续为后来者工作。你给它写上今天的日期。",
+    reward: { title: "今日水声·连续记录纸", category: "keepsake" },
+  },
+  {
+    id: "d04-window", title: "坐听窗后的瀑布", kind: "photo",
+    position: p(139, 554), approach: p(256, 574),
+    baked: shape([[118,537],[174,533],[169,590],[115,593]]),
+    visual: { mount: "table", support: "左前窗边长凳上的青色旅行簿；从长凳右侧站立，不跨进墙窗", depth: 673 },
+    description: "窗边的旅行簿收着大家从室内拍的瀑景。这里没有崖边落石，也不用探身出去：留一张隔着石窗的安全风景。",
+    result: "打卡：水帘在窗外，平安在屋里。旅行册新增「一扇窗里的瀑布」。",
+    reward: { title: "一扇窗里的瀑布", category: "postcard" },
+  },
+  {
+    id: "d04-kettle", title: "给后来者留一壶温水", kind: "inspect",
+    position: p(1416, 447), approach: p(1350, 491),
+    baked: shape([[1394,395],[1424,389],[1441,418],[1435,440],[1404,446],[1389,432]]),
+    visual: { mount: "table", support: "东侧墙边小木架上的原生黄铜水壶，从木架西侧蓝砖操作", depth: 484 },
+    description: "这不是奖励箱，只是一壶留给走累的人的温水。摸到壶壁还有余温，你把盖子盖好。",
+    result: "壶里的温暖留给下一位旅人。有些小事不必换成口令才值得做。",
+  },
+  {
+    id: "d04-cat", title: "观测所的小猫「水点」", kind: "pet",
+    position: p(300, 634), approach: p(321, 672),
+    visual: { mount: "actor", support: "窗边水碗右侧连续石砖地面，小猫仅在长凳外侧空地巡游", height: 31, maxWidth: 38 },
+    animal: "cat", patrol: [p(280, 623), p(330, 612), p(380, 650), p(321, 674)],
+    description: "小猫在水碗和阅读区之间溜达。你停下来，把手背伸低，等它自己靠近。",
+    result: "水点轻轻蹭了一下你的手背，又回到温暖的石砖上。它没有挡住门，也不需要被捕捉。",
+  },
+];
+
+const pack: ExplorationPack = {
+  day: 4, theme: "听见水，也留下今天",
+  room: {
+    id: "d04-room", name: "水声观测所",
+    background: "/assets/exploration-014/day04/water-observatory.png",
+    intro: "观瀑亭后是一间小小的水声观测所。左侧可以读书、听瀑、看标本；右侧记录器等着一次细心的维护。所有事情都可选，底部敞开的门随时能返回。",
+    entry: { title: "进入水声观测所", position: p(1224,149), approach: p(1229,187), sharedTarget: "exit",
+      baked: shape([[1218,130],[1235,123],[1248,135],[1247,158],[1218,161]]),
+      support: "东岸顶层原生观瀑亭门洞，与原关卡出口同门双选；需先获得主线踏石通路抵达，不能隔着水进入" },
+    world: world({
+      spawn: p(800, 718),
+      regions: [
+        area("瀑景阅读室", [[230,343],[789,343],[789,718],[185,718],[175,654],[209,529],[218,414]]),
+        area("水务检修间", [[853,350],[1334,350],[1378,429],[1415,541],[1421,663],[1357,718],[853,718]]),
+        area("隔墙南侧通廊", [[232,570],[1374,570],[1374,717],[232,717]]),
+        area("观测所敞开门槛", [[738,704],[866,704],[866,813],[738,813]]),
+      ],
+      obstacles: [
+        box("中部石隔墙：须从南端绕行", 794, 87, 52, 468),
+        box("窗下标本长桌", 335, 285, 295, 80),
+        box("阅读桌", 293, 397, 211, 124),
+        box("阅读桌前座椅", 361, 484, 55, 66),
+        obstacle("窗边长凳与旅行簿", [[92,530],[202,526],[192,650],[151,676],[84,658]]),
+        box("猫用水碗", 200, 605, 44, 36),
+        box("维修工具台", 914, 260, 207, 112),
+        box("黄铜水声记录器底座", 1140, 250, 116, 133),
+        box("东墙水壶架", 1370, 391, 87, 99),
+        box("门左石柱", 663, 661, 70, 142),
+        box("门右石柱", 870, 661, 66, 145),
+      ],
+      anchors: { exit: [800, 800, 800, 770] },
+      baked: { exit: shape([[738,756],[866,756],[866,815],[738,815]]) },
+      visuals: { exit: { mount: "door", support: "底部双扇门之间的原生石门槛；返回不受任何收藏或修复状态限制", depth: 813 } },
+    }),
+    nodes,
+  },
+  outside: [
+    {
+      id: "d04-moss", title: "石台边的湿苔", kind: "inspect",
+      position: p(679, 543), approach: p(681, 566),
+      baked: shape([[668,531],[682,524],[695,534],[695,546],[677,551]]),
+      visual: { mount: "ground", support: "虹光台边缘原画的苔石，从石台内侧观察，不踏上苔面", layer: "ground" },
+      description: "苔藓的绿色比干燥地砖更深，水雾一靠近就发亮。这块边缘适合观察，不适合抄近路。",
+      result: "自然观察已记录：看上去柔软的苔，也可能是湿滑的提示。没有采走活苔。",
+    },
+    {
+      id: "d04-wheel", title: "听水轮的拍子", kind: "inspect",
+      position: p(307, 491), approach: p(326, 413),
+      baked: shape([[283,439],[315,451],[339,481],[345,522],[323,544],[300,524],[280,478]]),
+      visual: { mount: "ground", support: "西岸原生大水轮外侧木叶，从上方控制平台安全侧倾听，不与分水石墩热区重合", depth: 545 },
+      description: "水轮叶片一片片吃到水，低低地拍出重复节奏。它不是另一道密码，只是这座观测所一直醒着的声音。",
+      result: "声音笔记新增「水轮的慢拍」。把这段节奏与屋里的记录纸放在一起，会记起这里。",
+    },
+    {
+      id: "d04-rainbow", title: "石台内侧的双虹视角", kind: "photo",
+      position: p(718, 520), approach: p(727, 536),
+      baked: shape([[708,510],[723,508],[734,518],[726,526],[711,526]]),
+      visual: { mount: "ground", support: "虹光台东北内缘原生平坦石砖，是摄影站位而非水中的可拾取彩虹", layer: "ground" },
+      description: "站稳在这块干燥石砖上，水面和高处会出现两段不同的彩虹。镜头可以向外，脚仍留在石台内侧。",
+      result: "打卡「不必走到边缘的彩虹」：旅行册留下两道虹光和完整的一天。",
+      reward: { title: "双虹石台·平安合影", category: "postcard" },
+    },
+  ],
+  achievements: [
+    { id: "d04-water-keeper", title: "今日水声保管员", description: "按证据检修支路记录器，并留存一段完整水声。", requires: ["d04-journal","d04-gauge","d04-cord","d04-recorder","d04-chart"] },
+    { id: "d04-slow-day", title: "把脚步放慢的人", description: "听水轮、观察湿苔、从安全处拍双虹、读标本，并与水点亲近。", requires: ["d04-wheel","d04-moss","d04-rainbow","d04-stones","d04-cat"] },
+  ],
+};
+export default pack;

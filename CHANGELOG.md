@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0 - 2026-09-08
+
+- Authored eight optional multi-area interior maps connected to real outdoor doors, without claiming that every background building is enterable. Shared main-task doors provide explicit enter/investigate choices; the waterfall observatory retains its stepping-stone prerequisite.
+- Added 99 discovery nodes (24 outdoor, 75 indoor), including 38 archive rewards, 14 photo/check-in nodes, 16 local achievements, and nine visible cat/dog/mouse actors. These attribute counts overlap and are not extra nodes.
+- Added optional umbrella/radio repairs, seedling care, water-record maintenance, cooking and observation sequences, lost-property checking, and capillary-wick cultivation. Collections never gate the campaign's existing puzzles, passcodes or stamps.
+- Added shared room transitions, per-room exploration memory, navigable patrol actors, scene-registered restoration patches, prerequisite/sequence validation, and duplicate-safe discovery settlement inside the existing inventory/journal.
+- Extended v2 saves additively: retain collections when replaying a day, preserve each room's exploration, and reload interior saves at the outdoor doorway rather than applying indoor coordinates to the original map.
+- Archived generated sources, complete prompts, registration data and per-day audits with code. Added release documentation and portable asset-processing defaults; environment files and explicit temporary QA folders are ignored.
+- Registered all eight packs. The 112-test suite passes, including 46 exploration tests covering all 99 nodes with real navigation/update logic, save/return behavior, duplicate rewards, prerequisites, sequences, patrol safety, pause/hazard isolation, missing images, legacy saves and stale shared-door callbacks. Both eight-map audits and the production build pass.
+- Fixed shared-door modal pause ownership and Tab focus containment; room footsteps now follow wood/stone surfaces, including the valley workshop's diagonal material seam.
+- Added `npm run audit:exploration`. Browser visual sampling opened all eight production rooms through the isolated development review entry, checking backgrounds, walkable spawns, minimaps and animal composition. DAY01 real doorway navigation, cabinet routing, diagram/tool interactions and refresh persistence, plus DAY02 fullscreen entry/exit, pass; browser warnings/errors were empty.
+- Completed local acceptance within the documented sample: DAY03 returned through its real door to the outdoor mill stance, opened the shared-door chooser, retained pause and cyclic Tab focus, re-entered the room, and displayed discoveries, local achievements and the eight-day album in the journal. DAY04 shared-door UI has logic regression coverage but was not manually exercised. This is not manual traversal of all 99 nodes or human playtesting; GitHub push confirmation is recorded separately.
+
 ## 0.13.0 - 2026-09-08
 
 - Established seven independent visual acceptance gates and split eight world definitions into separately owned files for parallel fixes plus independent review.

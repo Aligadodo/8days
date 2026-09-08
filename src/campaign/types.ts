@@ -124,6 +124,9 @@ export interface PersistedLevelState {
   explored?: number[];
   checkpoint?: Point;
   hintStages?: Record<string, number>;
+  discoveries?: string[];
+  visitedRooms?: string[];
+  roomExplored?: Record<string, number[]>;
 }
 
 export interface CampaignSave {
@@ -135,6 +138,14 @@ export interface CampaignSave {
 }
 
 export interface CampaignView {
+  exploration: {
+    roomId: string | null; sceneName: string; roomName?: string;
+    flags: string[]; visited: number;
+    items: { id: string; title: string; category: string }[];
+    discoveries: { id: string; title: string; location: string; description: string; done: boolean }[];
+    achievements: { id: string; title: string; description: string; done: boolean }[];
+    album: { day: number; title: string; found: number; total: number; visited: boolean }[];
+  };
   worldFlags: string[];
   worldItems: string[];
   accessHint?: string;
@@ -159,6 +170,7 @@ export interface DeathInfo {
 }
 
 export interface CampaignHooks {
+  onDoorChoice?: (title: string, enter: () => void, inspect: () => void) => void;
   onCinematic?: (active: boolean) => void;
   onView: (view: CampaignView) => void;
   onToast: (message: string, tone?: "normal" | "success" | "danger") => void;

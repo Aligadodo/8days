@@ -1,0 +1,21 @@
+{
+  "checks": [
+    "content budgets and unique ids",
+    "outdoor entry and discoveries reachable from main spawn",
+    "indoor spawn, return and every station reachable both ways",
+    "furniture and walls block walking (explicit negative samples)",
+    "animal entire patrol cycle and every route segment avoid walls",
+    "dependencies and sequences reference valid nodes without cycles",
+    "PNG assets, source crop bounds and world polygons valid",
+    "sequence rejects wrong order; prerequisites gate reward; replay is idempotent; achievements reachable"
+  ],
+  "counts": {
+    "outside": 3,
+    "inside": 8,
+    "rewards": 3,
+    "achievements": 2
+  },
+  "limitations": [
+    "Data and shared settlement tests only; browser entry/save/death/full rendering requires main-task integration."
+  ]
+}

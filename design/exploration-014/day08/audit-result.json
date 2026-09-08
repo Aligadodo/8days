@@ -1,0 +1,16 @@
+{
+  "day": 8,
+  "indoorInteractions": 9,
+  "outdoorDiscoveries": 3,
+  "rewards": 6,
+  "nonToolArchives": 5,
+  "photos": 1,
+  "achievements": 2,
+  "connectedRoomPairs": 55,
+  "blockedFurnitureAndWallProbes": 12,
+  "safeClosedPatrolSegments": 4,
+  "pngResources": 2,
+  "dependencyAndIdempotence": "passed",
+  "entryAndReturnBeforeMainPuzzles": "passed",
+  "uiLifecycle": "NOT RUN: pending main-task registry integration"
+}

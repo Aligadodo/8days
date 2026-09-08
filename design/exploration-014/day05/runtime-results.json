@@ -1,0 +1,23 @@
+{
+  "status": "PASS",
+  "checks": [
+    "image loading failure leaves player outside",
+    "3 outdoor actions via production navigate/update",
+    "real doorway entry",
+    "10 indoor actions via production navigate/update",
+    "reward prerequisite",
+    "13 stable flags and 5 unique album rewards",
+    "2 earned achievements",
+    "main-line solved flags unchanged",
+    "repeat interactions do not duplicate rewards",
+    "exact outdoor return point",
+    "re-entry preserves discovery",
+    "save/replay preserves discovery",
+    "80 seconds of production dog patrol stays walkable"
+  ],
+  "limitations": [
+    "Headless DOM/canvas stubs; no browser rendering, hover alpha or real asset decoding validated.",
+    "DAY05 pack getter overridden in test instance only; production registry unchanged.",
+    "Main outdoor hazards disabled for deterministic lifecycle coverage."
+  ]
+}

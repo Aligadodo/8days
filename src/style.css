@@ -305,3 +305,9 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .toast { max-width: 90%; bottom: 143px; top: auto; font-size: 11px; }.sound-caption { bottom: 114px; max-width: 92%; font-size: 10px; }
   .puzzle-card { max-height: 100%; }.code-card,.death-card,.complete-card { padding: 22px 17px; }
 }
+.door-card { width: min(520px, 90%); padding: 28px; background: #f5efcf; color: #304650; display: grid; gap: 12px; }
+.door-card p { line-height: 1.7; margin: 0 0 8px; }
+.door-card h2 { margin: 0; }
+.journal-block summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+.exploration-help { font-size: 12px; line-height: 1.6; opacity: .8; }
+.collection-item { border-color: #8baa8f; }
