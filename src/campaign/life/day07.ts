@@ -29,5 +29,3 @@ const pack:LifePack={day:7,outside:[
  n({id:"d07-life-stamp",title:"登记台上的铜印章",kind:"inspect",position:p(1480,550),approach:p(1480,655),baked:poly([[1474,479],[1486,478],[1493,487],[1488,503],[1494,515],[1491,532],[1465,531],[1463,517],[1476,508]]),visual:table("登记台右侧原生铜印章，站在桌东南侧地板看柄和底座，不碰登记簿热点",619),description:"铜柄被许多手掌磨得发亮。这是站内公物，只观察，不拆取金属或拿走印章。",emptyText:"印章安稳立在桌边，留给下一个核对记录的人。"}),
  ]};
 export default pack;
-
-

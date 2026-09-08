@@ -34,6 +34,3 @@ const pack:LifePack={
   ],
 };
 export default pack;
-
-
-

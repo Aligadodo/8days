@@ -41,4 +41,3 @@ assert(roomNav.route(exp.room.world.spawn,exp.room.world.approaches.exit,undefin
 const summary={day:8,outside:pack.outside.length,inside:pack.inside.length,counts:Object.fromEntries(['outside','inside'].map(s=>[s,Object.fromEntries(['container','gather','inspect'].map(k=>[k,pack[s].filter(n=>n.kind===k).length]))])),sharedNodes:results.filter(n=>n.sharedDiscovery).length,verifiedRouteSegments:segments,artChecks,initialAndFullReachability:true,doorwayRegression:true,nearestUsed:false,results};
 writeFileSync('design/life-015/day08/audit-result.json',JSON.stringify(summary,null,2));
 console.log(JSON.stringify({...summary,results:undefined},null,2));
-

@@ -30,5 +30,3 @@ for(const [name,nodes,w,discoveries] of [['outside',pack.outside,outside,exp.out
 const counts=Object.fromEntries(['outside','inside'].map(k=>[k,{total:pack[k].length,...Object.fromEntries(['container','gather','inspect'].map(kind=>[kind,pack[k].filter(n=>n.kind===kind).length]))}]));
 writeFileSync('design/life-015/day06/audit-results.json',JSON.stringify({counts,checks,limitations:['Outside 1 container, inside 1; no persistent open-state raster yet.','No live runtime economy/save test; no afterArt.']},null,2));
 console.log('PASS',checks.length,'node/state checks: stance, bidirectional routes, every visible segment, polygons, loot lifecycle, exact sharedDiscovery geometry, both portals');console.log(counts);
-
-

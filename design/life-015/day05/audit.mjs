@@ -16,5 +16,3 @@ for(const [scene,world,points] of [['outside',outside,[[1266,345],[1290,310],[27
 const counts=Object.fromEntries(['outside','inside'].map(scene=>[scene,{total:pack[scene].length,...Object.fromEntries(['container','gather','inspect'].map(k=>[k,pack[scene].filter(n=>n.kind===k).length]))}]));
 const result={day:5,counts,checks:results.length,passed:results.filter(r=>r.status==='PASS').length,results,limitations:['Data/navigation validation only; runtime economy and combined sharedDiscovery UI must be integrated centrally.','No new bitmap assets or afterArt. Lidded tasting jars are opened and reclosed; only the personal allocation is exhausted. Drawers close again after paper collection.']};
 writeFileSync('design/life-015/day05/audit-results.json',JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(counts));for(const r of results.filter(r=>r.status==='FAIL'))console.log(r);console.log(`${result.passed}/${result.checks} passed`);if(result.passed!==result.checks)process.exitCode=1;
-
-

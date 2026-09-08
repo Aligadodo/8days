@@ -58,4 +58,3 @@ npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --st
 历史中间状态（已解决）：当时严格类型检查未通过共享依赖：`src/campaign/life/catalog.ts:29` 当时尚未实现新增限定池 wood/stone/fruit/cloth 等，报 TS2740。DAY06 数据本身未报错。现 catalog 已补齐，本人以本节相同命令复跑独立审计与严格类型检查，均退出码 0；不再保留该历史问题为当前阻塞。
 
 未修改 registry 做测试，未访问用户 localhost:5173 或存档。中央接线与最终自动验收已完成，具体运行时、保存/重玩、命中采样及隔离图形实测证据见 [LIFE_015_RELEASE.md](../LIFE_015_RELEASE.md)。DAY06 专属开盖位图仍未制作，其余视觉和手工覆盖边界按该中央报告及上文如实保留。本次仅更新报告状态与复跑审计结果，没有改数据或源码，准备发布冻结。
-

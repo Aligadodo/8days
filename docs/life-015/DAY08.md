@@ -67,4 +67,3 @@ npx tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bun
 ## 新标准修正
 
 删除3个对已有 inspect 的重复包装，替换为新实物/部件；仅共享两项有新增补给用途的 collect。蓝布限定 cloth，草稿纸盒限定 paper，小木盒回收余料使用 salvage 而非可能抽出点心的 pocket。只有确实混合碎石/晶粒的矿样仍用 mineral。
-
