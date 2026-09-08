@@ -66,7 +66,7 @@ npm run preview
 
 `npm test` 运行自动化回归。QA 请使用独立源（例如 `npm run dev -- --host 127.0.0.1 --port 5174 --strictPort`）；`localhost`、`127.0.0.1` 和不同端口的浏览器存储互相独立，勿在玩家实际地址上清档做测试。
 
-源码目标仓库：[Aligadodo/8days](https://github.com/Aligadodo/8days)。Git 同步不等于网站部署；运行时不需要 GitHub 密钥或第三方 API 密钥。关联与推送状态以发布验收记录为准。
+源码仓库：[Aligadodo/8days](https://github.com/Aligadodo/8days)，已关联并推送 `main`。Git 同步不等于网站部署；运行时不需要 GitHub 密钥或第三方 API 密钥。提交与验收范围见发布验收记录。
 
 ## 目录
 
