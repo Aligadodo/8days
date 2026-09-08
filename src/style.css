@@ -311,3 +311,86 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .journal-block summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
 .exploration-help { font-size: 12px; line-height: 1.6; opacity: .8; }
 .collection-item { border-color: #8baa8f; }
+
+/* Life economy lives inside the existing pocket drawer; no new persistent HUD. */
+.drawer { grid-template-rows: 50px 44px 1fr; }
+.drawer-head { padding: 7px 14px; }
+.drawer-head b { font-size: 17px; }
+.drawer-head small { font-size: 6px; }
+.drawer-tabs button { font-size: 14px; gap: 1px; }
+.economy-wallet { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-bottom: 2px solid #537169; padding-bottom: 12px; }
+.economy-wallet div { display: grid; gap: 4px; }
+.economy-wallet b { color: #ffe18a; font-size: 17px; }
+.economy-wallet small { color: #b5c9ca; font-size: 11px; line-height: 1.6; }
+.life-tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px; margin: 8px 0 6px; }
+.life-tabs button { min-height: 32px; border: 1px solid #567a80; background: #213a48; color: #c6d9d7; font-size: 12px; cursor: pointer; }
+.life-tabs button.active { background: #426c66; color: #fff1ae; border-color: #bdd391; box-shadow: inset 0 -3px #b2c48b; }
+.economy-feedback { margin: 7px 0; padding: 6px 8px; background: #173a38; color: #c5e5ca; font-size: 11px; line-height: 1.5; border-left: 3px solid #9bbd7f; overflow-wrap: anywhere; }
+.economy-feedback.wrong { background: #453839; color: #ffd6b5; border-color: #e4a16f; }
+.economy-help { color: #b3cbd0; font-size: 11px; line-height: 1.85; }
+.economy-wallet { padding-bottom: 5px; }
+#lifeStatus { margin: 5px 0 8px; font-size: 10px; line-height: 1.4; }
+.backpack-rules { margin-top: 12px; color: #acc6c7; font-size: 10px; line-height: 1.7; }
+.backpack-rules summary { cursor: pointer; padding: 4px 0; }
+.backpack-rules p { margin: 5px 0; }
+.supply-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+.supply-slot { min-width: 0; min-height: 49px; display: grid; grid-template-columns: 22px minmax(0,1fr); grid-template-rows: auto auto; align-items: center; gap: 2px 5px; padding: 6px; text-align: left; cursor: pointer; border: 2px solid #49666f; background: #253e49; color: #eff0d1; }
+.supply-slot > span { grid-row: 1 / 3; font-size: 21px; text-align: center; color: #d7d396; }
+.supply-slot b { font-size: 10px; font-weight: 600; overflow-wrap: anywhere; }
+.supply-slot small { font-size: 11px; color: #e7d893; }
+.supply-slot.empty { background: #1b303a; color: #9eb3b8; }
+.supply-slot.empty > span,.supply-slot.empty small { color: #6d8b94; }
+.supply-slot.selected { border-color: #c5d399; box-shadow: inset 0 0 0 1px #789078; background: #36534f; }
+.supply-detail { margin-top: 9px; border-top: 1px solid #59746e; padding-top: 9px; }
+.supply-detail-title { display: flex; justify-content: space-between; align-items: baseline; gap: 7px; }
+.supply-detail-title b { color: #fff0bf; font-size: 12px; }
+.supply-detail-title small { color: #b3cbd0; font-size: 10px; }
+.supply-detail p { color: #c4d4d3; font-size: 10px; line-height: 1.6; margin: 5px 0; }
+.supply-detail .trade-row { margin-top: 7px; gap: 6px; align-items: end; }
+.supply-detail .trade-row > div { flex-basis: 84px; }
+.supply-detail .trade-quantity { flex-basis: 52px; }
+.supply-detail .trade-button,.supply-detail .trade-quantity input { min-height: 32px; }
+.life-card-list { display: grid; gap: 12px; margin: 12px 0 18px; }
+.life-card { padding: 12px; background: #233d48; border: 2px solid #425f68; box-shadow: 2px 2px #0e2028; min-width: 0; }
+.life-card-head { display: flex; align-items: center; gap: 10px; }
+.life-card-head > div { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.life-card-head b { font-size: 13px; color: #fff0c2; overflow-wrap: anywhere; }
+.life-card-head small { color: #a8c5c9; font-size: 10px; line-height: 1.6; }
+.life-card-head strong { color: #edda8e; font-size: 15px; }
+.life-badge { display: grid; place-items: center; flex: 0 0 34px; height: 34px; background: #142c33; border: 2px solid #688785; color: #d9d79b; font-size: 18px; font-style: normal; }
+.life-card p { color: #c4d4d3; font-size: 11px; line-height: 1.8; margin: 11px 0; }
+.trade-row { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; margin-top: 10px; }
+.trade-row > div { flex: 1 1 110px; min-width: 0; }
+.trade-button { width: 100%; min-height: 38px; padding: 8px 10px; background: #456b61; color: #fff5ca; border: 1px solid #95b28b; font-size: 11px; cursor: pointer; }
+.trade-button:disabled { cursor: not-allowed; background: #2c4148; color: #8aa0a5; border-color: #4b6168; }
+.trade-reason { display: block; color: #e1ba94; line-height: 1.6; font-size: 10px; margin-top: 5px; }
+.trade-quantity { flex: 0 0 64px; display: grid; gap: 3px; }
+.trade-quantity span { font-size: 10px; color: #acc6c7; }
+.trade-quantity input { width: 100%; min-height: 36px; padding: 5px 7px; background: #122b35; border: 1px solid #799397; color: #fff1c6; font-size: 12px; }
+.pet-equipped { border-color: #a0bf88; background: #294b49; }
+.pet-portrait { display: block; flex: 0 0 64px; width: 64px; height: 64px; background-image: url('/assets/sprites/critters.png'); background-size: 400% 400%; background-repeat: no-repeat; image-rendering: pixelated; }
+.pet-cat { background-position: 0 0; }
+.pet-dog { background-position: 0 33.333333%; }
+.pet-mouse { background-position: 0 66.666667%; }
+.life-subtitle { font-size: 13px; color: #eadbb0; margin: 20px 0 8px; }
+.compact-shop { gap: 8px; margin: 7px 0; }
+.compact-shop .life-card { padding: 9px; }
+.compact-shop .life-card p { margin: 6px 0; font-size: 10px; line-height: 1.6; }
+.compact-shop .trade-row { margin-top: 6px; }
+.compact-pets { gap: 7px; margin: 7px 0 12px; }
+.compact-pets .life-card { display: grid; grid-template-columns: minmax(0,1fr) 112px; align-items: center; gap: 5px; padding: 7px; }
+.compact-pets .pet-portrait { flex-basis: 48px; width: 48px; height: 48px; }
+.compact-pets .life-card-head { gap: 5px; }
+.compact-pets .life-card-head b { font-size: 11px; }
+.compact-pets .trade-row { margin: 0; }
+.compact-pets .trade-reason { grid-column: 1 / -1; }
+.life-subtitle { margin-top: 11px; }
+#economyAchievements progress { display: block; width: 100%; height: 7px; margin-top: 8px; accent-color: #bdd490; }
+@media (max-width: 480px) {
+  .drawer { width: min(420px, 96%); }
+  .drawer-panel { padding: 12px; }
+  .economy-wallet { align-items: start; }
+  .economy-wallet > small { max-width: 110px; text-align: right; }
+  .life-card { padding: 10px; }
+  .compact-pets .life-card { grid-template-columns: minmax(0,1fr) 100px; }
+}

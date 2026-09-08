@@ -1,6 +1,10 @@
 export type AudioBus = "music" | "effects" | "ambience";
 
 export type AudioEventId =
+  | "life.rummage"
+  | "life.gather"
+  | "life.collect"
+  | "life.trade"
   | "mechanism.strike"
   | "mechanism.crumble"
   | "mechanism.slide"
@@ -304,6 +308,18 @@ export class AudioManager {
         break;
       case "item.pickup.tool":
         this.chord([520, 690], 0.09, 0.04, pan);
+        break;
+      case "life.rummage":
+        this.noise(.14,.025,780,pan);this.tone(210,.08,.025,"triangle",.09,pan);
+        break;
+      case "life.gather":
+        this.noise(.14,.021,1500,pan);this.tone(420,.06,.022,"sine",.1,pan);
+        break;
+      case "life.collect":
+        this.chord([660,880,990],.11,.035,pan);
+        break;
+      case "life.trade":
+        this.chord([480,720],.09,.033,pan);
         break;
       case "item.pickup.clue":
         this.chord([440, 554, 659], 0.13, 0.045, pan);

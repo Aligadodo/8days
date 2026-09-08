@@ -5,13 +5,19 @@ import { buildWorldNavigation, mechanismOpen } from "./worldGeometry";
 import { drawSurface, drawMechanism, drawMechanismPatch, hitMechanism } from "./mechanismRendering";
 import { SceneRaster } from "./SceneRaster";
 import { SpriteAtlas } from "./SpriteAtlas";
-import { entitiesFor, entityDepth, type Entity } from "./entities";
+import { entitiesFor, entityDepth, lifeEntity, type Entity } from "./entities";
 import { drawBakedObject, drawPlacedSprite } from "./objectRendering";
 import { EXPLORATION_PACKS } from "./exploration/packs";
 import { allDiscoveries, discoveryEntity, roomPortal, settleDiscovery, earnedAchievements } from "./exploration/discoveries";
 import type { RoomDefinition } from "./exploration/schema";
 import { restoreCampaignSave } from "./campaignSave";
 import { footstepFor } from "./footsteps";
+import { LIFE_PACKS, lifeNodesFor } from "./life/packs";
+import { createEconomy, economyView, useItem as useEconomyItem, sellItem as sellEconomyItem,
+  buyItem as buyEconomyItem, buyPet as buyEconomyPet, equipPet as equipEconomyPet, type EconomyState, type EconomyResult } from "./life/economy";
+import { createLife, collectLife, lifeAvailable, type LifeState } from "./life/runtime";
+import { PetFollowers, type FollowingPet } from "./life/pets";
+import { collectSceneOccluders, drawWithOcclusion, isPointOccluded } from "./occlusion";
 import {
   HazardDirector,
   DEATH_TIMING,
@@ -60,6 +66,10 @@ export class CampaignGame {
   private level = LEVELS[0];
   private room: RoomDefinition | null = null;
   private sceneRevision = 0;
+  private economy: EconomyState = createEconomy();
+  private life: LifeState = createLife();
+  private readonly followers = new PetFollowers();
+  private pickups: {point:Point;age:number;count:number}[]=[];
   private discoveryFlags = new Set<string>();
   private visitedRooms = new Set<string>();
   private roomExplored: Record<string, number[]> = {};
@@ -71,6 +81,7 @@ export class CampaignGame {
   private get activeWorld() { return this.room?.world ?? WORLDS[this.levelIndex]; }
   private get activeHazards() { return this.room ? [] : this.level.hazards; }
   private get mapImage() { return this.images.get(this.room?.id ?? this.level.id); }
+  private get lifeNodes() { return lifeNodesFor(this.level.day,Boolean(this.room)); }
   private entities: Entity[] = entitiesFor(this.level);
   private player = { ...this.level.playerStart };
   private facing: Facing = "down";
@@ -137,6 +148,8 @@ export class CampaignGame {
     ) as HTMLCanvasElement;
     this.miniContext = this.minimap.getContext("2d")!;
     this.save = this.loadSave();
+    this.economy = this.save.economy ?? createEconomy();
+    this.life = this.save.life ?? createLife();
     LEVELS.forEach((level) => {
       const image = new Image();
       image.src = level.background;
@@ -148,6 +161,9 @@ export class CampaignGame {
       allDiscoveries(pack).forEach(node => [node.art, node.afterArt].forEach(art => {
         if (art) this.sceneRaster.preload(art).catch(() => hooks.onToast("探索物件图片未加载，请刷新重试。", "danger"));
       }));
+    });
+    LIFE_PACKS.flatMap(pack=>[...pack.outside,...pack.inside]).forEach(node=>{
+      if(node.afterArt)this.sceneRaster.preload(node.afterArt).catch(()=>hooks.onToast("部分生活物件图片尚未载入，请稍后刷新。","danger"));
     });
     this.atlas.ready.catch(() =>
       hooks.onToast("部分角色素材未载入，请刷新重试。", "danger"),
@@ -168,6 +184,11 @@ export class CampaignGame {
     this.entities = this.room
       ? [...this.room.nodes.map(discoveryEntity), roomPortal(this.room, true)]
       : [...entitiesFor(this.level), ...(pack ? [...pack.outside.map(discoveryEntity), roomPortal(pack.room, false)] : [])];
+    for(const node of this.lifeNodes) {
+      const shared=node.sharedDiscovery ? this.entities.find(e=>e.id===node.sharedDiscovery && e.discovery) : undefined;
+      if(shared && !shared.life)shared.life=node;
+      else this.entities.push(lifeEntity(node));
+    }
     this.critters.clear();
     this.entities.filter(e => e.discovery?.animal).forEach(e => this.critters.set(e.id,
       { point: { x: e.x, y: e.y }, route: [], next: 0, direction: 1, stride: 0, wait: 1 }));
@@ -220,6 +241,7 @@ export class CampaignGame {
     this.discoveryHistory = [];
     this.keys.clear(); this.pointer = null; this.hovered = null; this.footsteps = [];
     this.refreshEntities(); this.rebuildNavigation(); this.discovered.clear();
+    this.syncPets(true);this.pickups=[];
     this.centerCamera(); this.reveal(); this.graceUntil = this.elapsedSeconds + 3;
     this.persist(); this.emitView();
     this.hooks.onAudio({ id: "mechanism.latch", caption: room ? "踏过门槛，脚步在屋内轻轻回响" : "穿过门口，回到熟悉的路边" });
@@ -271,6 +293,41 @@ export class CampaignGame {
   getSave() {
     return structuredClone(this.save);
   }
+  private equippedPets() { return this.economy.equipped.map(id=>this.economy.pets.find(p=>p.id===id)!).filter(Boolean); }
+  private syncPets(reset=false) {
+    if(reset)this.followers.reset(this.equippedPets(),this.player,this.nav);
+    else this.followers.sync(this.equippedPets(),this.player,this.nav);
+  }
+  private economyAction(action:()=>EconomyResult) {
+    if(!this.started || this.dead)return {ok:false,message:"先回到安全的旅程中，再整理物资与伙伴。"};
+    const result=action();
+    if(result.ok){
+      const effect=result.effect;
+      if(effect?.kind==="pace"){
+        this.life.effects.paceUntil=this.life.activeSeconds+effect.seconds;
+        this.life.effects.paceMultiplier=Math.min(1.12,effect.multiplier??1);
+      } else if(effect?.kind==="pet-call")this.life.effects.petCallUntil=this.life.activeSeconds+effect.seconds;
+      this.syncPets();this.persist();this.emitView();
+    }
+    this.hooks.onToast(result.message,result.ok?"success":"normal");
+    this.hooks.onAudio({id:result.ok?"life.trade":"interaction.blocked"});
+    return result;
+  }
+  useItem(id:string) { return this.economyAction(()=>useEconomyItem(this.economy,id)); }
+  sellItem(id:string,quantity=1) { return this.economyAction(()=>sellEconomyItem(this.economy,id,quantity)); }
+  buyItem(id:string,quantity=1) { return this.economyAction(()=>buyEconomyItem(this.economy,id,quantity)); }
+  buyPet(id:string) { return this.economyAction(()=>buyEconomyPet(this.economy,id)); }
+  equipPet(id:string,equip:boolean) { return this.economyAction(()=>equipEconomyPet(this.economy,id,equip)); }
+  private interactLife(entity:Entity) {
+    const node=entity.life!;
+    if(distance(this.player,node.approach)>12)return;
+    const result=collectLife(this.life,this.economy,node);
+    this.hooks.onToast(result.message,result.status==="new"?"success":"normal");
+    this.hooks.onAudio({id:result.status==="new"?"life.collect":result.status==="inspect"?"ui.click.soft":"interaction.blocked"});
+    if(result.status!=="new")return;
+    this.pickups.push({point:{...node.position},age:0,count:Math.min(6,result.rewards?.reduce((sum,r)=>sum+r.quantity,0)??3)});
+    this.doneAt.set(node.id,this.elapsedSeconds);this.persist();this.emitView();
+  }
   getLevel() {
     return this.level;
   }
@@ -278,6 +335,11 @@ export class CampaignGame {
     const currentPuzzle = this.currentPuzzle();
     const access = this.accessMechanism(currentPuzzle?.id);
     return {
+      economy:economyView(this.economy),
+      life:{activeSeconds:this.life.activeSeconds,collected:this.lifeNodes.filter(n=>n.kind!=="inspect"&&!lifeAvailable(this.life,n)).length,
+        available:this.lifeNodes.filter(n=>n.kind!=="inspect"&&lifeAvailable(this.life,n)).length,total:this.lifeNodes.length,
+        paceSeconds:Math.max(0,Math.ceil(this.life.effects.paceUntil-this.life.activeSeconds)),
+        petCallSeconds:Math.max(0,Math.ceil(this.life.effects.petCallUntil-this.life.activeSeconds))},
       exploration: this.explorationView(),
       levelIndex: this.levelIndex,
       level: this.level,
@@ -360,6 +422,7 @@ export class CampaignGame {
         ? { ...saved.checkpoint }
         : { ...(remembered ? world.approaches[remembered.id] : world.spawn) };
     this.player = { ...this.checkpoint };
+    this.syncPets(true);this.pickups=[];
     this.elapsedSeconds = 0;
     this.graceUntil = 5;
     this.lastView = -1;
@@ -473,6 +536,7 @@ export class CampaignGame {
     this.cancel();
     this.keys.clear();
     this.player = { ...this.checkpoint };
+    this.syncPets(true);this.pickups=[];
     this.graceUntil = this.elapsedSeconds + 6;
     this.centerCamera();
     this.emitView();
@@ -520,6 +584,7 @@ export class CampaignGame {
     this.explored.clear();
     this.hintStages = {};
     this.discoveryFlags.clear(); this.visitedRooms.clear(); this.roomExplored = {}; this.room = null;
+    this.economy=createEconomy();this.life=createLife();this.pickups=[];this.followers.pets.clear();
     localStorage.removeItem(SAVE_KEY);
   }
   destroy() {
@@ -768,6 +833,7 @@ export class CampaignGame {
   private hit(q: Point) {
     const entry = !this.room ? this.pack?.room.entry : undefined;
     if (entry?.sharedTarget && contains(q, entry.baked)) return this.entities.find(e => e.portal) ?? null;
+    const occluders=collectSceneOccluders(this.activeWorld,this.entities,this.flags());
     return (
       [...this.entities]
         .filter(
@@ -775,9 +841,9 @@ export class CampaignGame {
             this.visibleEntity(e) &&
             !(e.mechanism?.kind === "gate" && this.done(e)),
         )
-        .sort((a, b) => entityDepth(b, this.entityPosition(b)) - entityDepth(a, this.entityPosition(a)))
-        .find((entity) => {
+        .filter((entity) => {
           const pos = this.entityPosition(entity);
+          if(!entity.baked && isPointOccluded(q,pos,occluders))return false;
           if (entity.discovery?.art) return this.sceneRaster.hit(this.done(entity) ? entity.discovery.afterArt ?? entity.discovery.art : entity.discovery.art, pos, q);
           if (entity.mechanism)
             return hitMechanism(this.sceneRaster, entity.mechanism, this.done(entity), q);
@@ -790,10 +856,22 @@ export class CampaignGame {
             q.y - pos.y,
             entity.visual?.maxWidth,
           );
-        }) ?? null
+        }).sort((a,b)=>{
+          const primary=(e:Entity)=>["puzzle","side","exit","mechanism","portal"].includes(e.type);
+          if(primary(a)!==primary(b))return primary(a)?-1:1;
+          const lifeHit=(e:Entity)=>Boolean(e.life && contains(q,e.life.baked));
+          if(lifeHit(a)!==lifeHit(b))return lifeHit(a)?-1:1;
+          const area=(e:Entity)=>{
+            const shape=e.life?.baked??e.baked;
+            return shape?Math.abs(shape.reduce((sum,p,i)=>sum+p.x*shape[(i+1)%shape.length].y-shape[(i+1)%shape.length].x*p.y,0))/2:Infinity;
+          };
+          if(lifeHit(a)&&lifeHit(b))return area(a)-area(b);
+          return entityDepth(b,this.entityPosition(b))-entityDepth(a,this.entityPosition(a));
+        }).map(e=>e.discovery && e.life && !contains(q,e.life.baked)?{...e,life:undefined}:e)[0] ?? null
     );
   }
   private done(entity: Entity) {
+    if(entity.type==="life")return !lifeAvailable(this.life,entity.life!);
     if (entity.discovery) return this.discoveryFlags.has(entity.id);
     if (entity.portal) return false;
     if (entity.mechanism) return mechanismOpen(entity.mechanism, this.flags());
@@ -854,6 +932,7 @@ export class CampaignGame {
       : [];
     if (!path.length && endpoint)
       path = this.nav.route(this.player, endpoint, () => false, 0);
+    if(!entity && !path.length)path=this.nav.routeNearestReachable(this.player,q,this.blocked);
     if (!path.length) {
       if (sound && this.elapsedSeconds - this.lastBlockedAt > 2) {
         this.lastBlockedAt = this.elapsedSeconds;
@@ -922,10 +1001,12 @@ export class CampaignGame {
           ? 1.15
           : mechanism?.kind === "cache"
             ? 0.55
-            : entity.discovery?.kind === "restore" ? 0.85
+            : entity.life ? (lifeAvailable(this.life,entity.life) ? entity.life.kind==="container"?0.85:entity.life.kind==="gather"?0.7:0.35 : 0.25)
+              : entity.discovery?.kind === "restore" ? 0.85
               : entity.discovery?.kind === "photo" ? 0.5
                 : entity.discovery?.kind === "pet" ? 0.65 : 0.4;
     this.actionTime = this.actionDuration;
+    if(entity.life && entity.life.kind!=="inspect" && lifeAvailable(this.life,entity.life))this.hooks.onAudio({id:entity.life.kind==="container"?"life.rummage":"life.gather"});
     if (mechanism?.kind === "lever")
       this.hooks.onAudio({
         id: "mechanism.slide",
@@ -935,6 +1016,13 @@ export class CampaignGame {
     this.face(entity.x - this.player.x, entity.y - this.player.y);
   }
   private interact(entity: Entity) {
+    if(entity.life){
+      if(entity.discovery)this.interactDiscovery(entity);
+      if(distance(this.player,entity.life.approach)>12){
+        const collection=lifeEntity(entity.life);this.navigate(collection.approach,collection,false);
+      }else this.interactLife(entity);
+      return;
+    }
     if (entity.portal) {
       if (entity.portal === "outside") this.switchRoom(null);
       else {
@@ -1077,6 +1165,8 @@ export class CampaignGame {
   private update(delta: number) {
     if (this.paused || this.dead || document.hidden) return;
     this.elapsedSeconds += delta;
+    this.life.activeSeconds+=delta;
+    this.pickups=this.pickups.filter(pickup=>(pickup.age+=delta)<1.1);
     this.updateCritters(delta);
     this.destinationAge = Math.max(0, this.destinationAge - delta);
     this.footsteps = this.footsteps.filter((f) => {
@@ -1140,8 +1230,9 @@ export class CampaignGame {
       (sum, q, i) => sum + distance(i ? this.path[i - 1] : this.player, q),
       0,
     );
+    const pace=this.life.effects.paceUntil>this.life.activeSeconds?this.life.effects.paceMultiplier:1;
     const targetSpeed = this.path.length
-      ? Math.min(180, Math.max(55, Math.sqrt(remaining * 1100)))
+      ? Math.min(180*pace, Math.max(55, Math.sqrt(remaining * 1100)))
       : 0;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-delta * 15));
     let budget = this.speed * delta;
@@ -1202,6 +1293,7 @@ export class CampaignGame {
         this.arrive(target);
       }
     }
+    this.followers.update(delta,this.player,this.nav,this.life.effects.petCallUntil>this.life.activeSeconds,this.blocked);
     const smooth = 1 - Math.exp(-delta * 9);
     this.camera.x +=
       (clamp(
@@ -1382,29 +1474,19 @@ export class CampaignGame {
       ctx.fillRect(-3, -2, 6, 3);
       ctx.restore();
     });
+    const occluders=collectSceneOccluders(this.activeWorld,this.entities,this.flags());
+    // Baked art is already in the background: apply its state/hover once, before drawing living actors.
+    this.entities.filter(e=>e.baked && this.visibleEntity(e)).forEach(e=>this.drawEntity(e));
     const actors = [
       ...this.entities
-        .filter((e) => this.visibleEntity(e))
+        .filter((e) => !e.baked && this.visibleEntity(e))
         .map((entity) => ({
           y: entityDepth(entity, this.entityPosition(entity)),
-          draw: () => this.drawEntity(entity),
+          draw: () => drawWithOcclusion(ctx,this.entityPosition(entity),occluders,()=>this.drawEntity(entity)),
         })),
-      { y: this.player.y, draw: () => this.drawPlayer() },
-      ...this.activeWorld.occluders.map((o) => ({
-        y: o.depth,
-        draw: () => {
-          if (!map?.complete || !map.naturalWidth) return;
-          ctx.save();
-          ctx.beginPath();
-          o.polygon.forEach((p, i) =>
-            i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y),
-          );
-          ctx.closePath();
-          ctx.clip();
-          this.redrawWorldBacking(ctx);
-          ctx.restore();
-        },
-      })),
+      { y: this.player.y, draw: () => drawWithOcclusion(ctx,this.player,occluders,()=>this.drawPlayer()) },
+      ...[...this.followers.pets.values()].map(pet=>({y:pet.point.y,
+        draw:()=>drawWithOcclusion(ctx,pet.point,occluders,()=>this.drawFollower(pet))})),
       ...this.activeHazards.map((h) => ({
         y: hazardCenter(h).y,
         draw: () =>
@@ -1412,6 +1494,7 @@ export class CampaignGame {
       })),
     ].sort((a, b) => a.y - b.y);
     actors.forEach((actor) => actor.draw());
+    this.drawPickups();
     if (this.deathScene)
       drawSoul(ctx, this.player, this.deathScene.age, this.reducedMotion);
     if (this.destination && this.destinationAge > 0 && !this.focus) {
@@ -1450,6 +1533,8 @@ export class CampaignGame {
         level: this.level.id,
         room: this.room?.id ?? null,
         discoveries: [...this.discoveryFlags],
+        life:{...this.life,equipped:this.economy.equipped},
+        followers:[...this.followers.pets.values()].map(p=>({id:p.id,species:p.species,point:p.point,direction:p.direction})),
         player: this.player,
         facing: this.facing,
         path: this.path,
@@ -1540,6 +1625,24 @@ export class CampaignGame {
       }
     }
   }
+  private drawFollower(pet:FollowingPet) {
+    const ctx=this.ctx,height=pet.species==="mouse"?19:pet.species==="dog"?32:29;
+    const frame=(pet.species==="dog"?4:pet.species==="mouse"?8:0)+(pet.speed>8&&pet.route.length?Math.floor(pet.stride/9)%4:0);
+    ctx.save();ctx.fillStyle="#17282035";ctx.beginPath();ctx.ellipse(pet.point.x,pet.point.y-1,height*.33,height*.1,0,0,Math.PI*2);ctx.fill();
+    this.atlas.draw(ctx,"critters",frame,pet.point.x,pet.point.y,height,false,pet.direction<0,43);ctx.restore();
+  }
+  private drawPickups() {
+    const ctx=this.ctx;
+    for(const pickup of this.pickups)for(let i=0;i<pickup.count;i++){
+      const progress=clamp((pickup.age-i*.035)/.72,0,1);
+      if(progress>=1)continue;
+      const eased=progress*progress*(3-2*progress);
+      const x=pickup.point.x+(this.player.x-pickup.point.x)*eased+Math.sin(progress*Math.PI)*(i-2)*4;
+      const y=pickup.point.y-12+(this.player.y-40-pickup.point.y)*eased-Math.sin(progress*Math.PI)*20;
+      ctx.save();ctx.globalAlpha=Math.min(1,pickup.age*10)*(1-progress*.6);ctx.fillStyle=i%2?"#eddba0":"#b8d4a0";
+      ctx.fillRect(Math.round(x),Math.round(y),3,3);ctx.restore();
+    }
+  }
   private drawFallenPlayer() {
     const scene = this.deathScene!,
       ctx = this.ctx,
@@ -1618,7 +1721,8 @@ export class CampaignGame {
       return;
     }
     if (entity.baked) {
-      drawBakedObject(ctx, entity, done, hover, () => this.redrawWorldBacking(ctx));
+      const visualEntity=hover && this.hovered?.life && entity.life ? {...entity,baked:entity.life.baked} : entity;
+      drawBakedObject(ctx, visualEntity, done, hover, () => this.redrawWorldBacking(ctx));
       return;
     }
     let y = pos.y;
@@ -1650,6 +1754,8 @@ export class CampaignGame {
     }
   }
   private drawScenePatches(ctx: CanvasRenderingContext2D) {
+    for(const entity of this.entities)
+      if(entity.life?.afterArt && !lifeAvailable(this.life,entity.life))this.sceneRaster.draw(ctx,entity.life.afterArt,entity.life.position);
     for (const entity of this.entities)
       if (entity.discovery?.afterArt && entity.baked && this.done(entity)) this.sceneRaster.draw(ctx, entity.discovery.afterArt, entity);
     for (const entity of this.entities)
@@ -1822,6 +1928,7 @@ export class CampaignGame {
   private persist() {
     if (!this.started) return;
     if (this.room) this.roomExplored[this.room.id] = [...this.explored];
+    this.save.economy=this.economy;this.save.life=this.life;
     this.save.levels[this.level.id] = {
       solved: [...this.solved],
       sideTasks: [...this.sideTasks],

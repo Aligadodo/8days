@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 - 2026-09-08
+
+- Added 127 life interactions across 16 scenes (43 one-time containers, 32 renewable sources, 52 repeatable inspections; 13 share existing discovery objects).
+- Added a cross-day stack inventory, 10 material/consumable types, 12 context-appropriate loot tables, coin exchange, atomic transactions, and four life achievements. No real-money purchases.
+- Added repeatable cat/dog/mouse adoption, up to 12 owned and three deployed followers, with continuous collision-safe movement and persisted party selection.
+- Preserved v2 campaign progress while storing claims, inventory, pets, active-play renewal time and consumable effects. Reload/replay cannot reroll a claimed container.
+- Fixed DAY02 opened-door silhouette masking and narrow diagonal navigation; fixed DAY04 floating-point corner stops. Ground clicks fall back to reachable safe floor without relaxing interaction stances or collision.
+- Added four registered container open-state patches and compact backpack slots. Remaining container art/animation coverage is explicitly documented, not advertised as complete.
+
 ## 0.14.0 - 2026-09-08
 
 - Authored eight optional multi-area interior maps connected to real outdoor doors, without claiming that every background building is enterable. Shared main-task doors provide explicit enter/investigate choices; the waterfall observatory retains its stepping-stone prerequisite.

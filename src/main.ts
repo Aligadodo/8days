@@ -5,6 +5,8 @@ import { shuffledOptions } from "./campaign/puzzleLogic";
 import { gameTime } from "./campaign/hazardDirector";
 import { CAMPAIGN_PHRASE, LEVELS } from "./campaign/levels";
 import { canOpenDrawer, hasVisibleModal, trapModalTab } from "./ui/modalState";
+import type { EconomyView, EconomyResult } from "./campaign/life/economy";
+import { ITEMS, MAX_COINS } from "./campaign/life/catalog";
 import type {
   CampaignView,
   LevelDefinition,
@@ -18,7 +20,7 @@ app.innerHTML = `
   <main class="app-shell">
     <header class="site-header">
       <div class="wordmark"><span>✦</span><div><b>今天，也要好好活着</b><small>ONE MORE DAY · 八日正式内容版</small></div></div>
-      <div class="release-chip"><i></i> LIVING WORLD 0.14.0</div>
+      <div class="release-chip"><i></i> LIVING WORLD 0.15.0</div>
     </header>
     <section id="gameFrame" class="game-frame" aria-label="八日旅程游戏区域">
       <canvas id="gameCanvas" tabindex="0" aria-label="Q版像素风探索地图"></canvas>
@@ -36,10 +38,10 @@ app.innerHTML = `
       <div id="quickbar" class="quickbar" aria-label="本关获得的物品"></div>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
       <div id="soundCaption" class="sound-caption" role="status" aria-live="polite" hidden></div>
-      <aside id="drawer" class="drawer" aria-hidden="true">
-        <div class="drawer-head"><div><small>POCKET MENU</small><b>随身日志</b></div><button id="drawerClose" aria-label="关闭">×</button></div>
+      <aside id="drawer" class="drawer" aria-hidden="true" inert>
+        <div class="drawer-head"><div><small>POCKET MENU</small><b id="drawerTitle">随身背包</b></div><button id="drawerClose" aria-label="关闭">×</button></div>
         <nav class="drawer-tabs"><button class="active" data-tab="inventory">▣<span>道具</span></button><button data-tab="journal">▤<span>日志</span></button><button data-tab="save">▥<span>存档</span></button><button data-tab="settings">⚙<span>设置</span></button></nav>
-        <section class="drawer-panel active" data-panel="inventory"><div class="section-title"><small>FOUND TODAY</small><b>今天带在身上的东西</b></div><div id="inventoryGrid" class="inventory-grid"></div></section>
+        <section class="drawer-panel active" data-panel="inventory"><div class="economy-wallet"><b><span aria-hidden="true">◉</span> <span id="coinBalance">0</span> 金币</b><small id="partySummary">暂无出战伙伴</small></div><nav class="life-tabs" aria-label="背包内容"><button data-life-tab="supplies" class="active" aria-pressed="true">物资</button><button data-life-tab="exchange" aria-pressed="false">兑换</button><button data-life-tab="pets" aria-pressed="false">伙伴</button><button data-life-tab="memories" aria-pressed="false">线索</button></nav><p id="economyFeedback" class="economy-feedback" role="status" aria-live="polite" hidden></p><div id="economyContent"></div><div id="memoryInventory" hidden><div class="section-title"><small>FOUND TODAY</small><b>今天的任务线索与收藏</b></div><p class="economy-help">主线工具与生活册收藏不可出售或消耗。</p><div id="inventoryGrid" class="inventory-grid"></div></div><details class="backpack-rules"><summary>背包规则</summary><p>物资跨日共用，每类最多999份；金币仅用于游戏，不涉及现实支付。箱子只取一次，采集按在线探索时间再生，暂停和离线不计时。</p><p>同类补给替换强度并重新计时，不叠加；关闭背包后开始计时。速度补给不免伤、不替你避险。</p><p>最多拥有12只伙伴、3只同时跟随。同种可重复领养，购买后自行安排出战；主线线索和纪念收藏不可出售。</p></details></section>
         <section class="drawer-panel" data-panel="journal"><div class="section-title"><small>LIFE LOG</small><b id="journalTitle">DAY 01 · 暴雨通勤</b></div><div class="journal-progress"><span id="journalBar"></span></div><div class="journal-block"><b>主线推理</b><div id="clueList" class="clue-list"></div></div><div class="journal-block"><b>顺手做的小事</b><div id="sideList" class="side-list"></div></div><div class="journal-block"><b>八日印章</b><div id="stampList" class="stamp-list"></div></div></section>
         <section class="drawer-panel" data-panel="save"><div class="save-card"><span>☁</span><h3>设备本地存档</h3><p>谜题线索、死亡后的经验、支线与已解锁关卡都会自动保存。</p><button id="saveButton" class="menu-action">立即保存生活日志</button><small id="saveStatus">自动保存已开启</small></div><button id="campaignButton" class="secondary-action">返回八日旅程</button><button id="resetSaveButton" class="secondary-action reset-action">重置全部战役进度</button></section>
         <section class="drawer-panel" data-panel="settings"><label class="setting-row"><div><b>加强危险轮廓</b><small>始终显示危险区域边界</small></div><input id="dangerAssist" type="checkbox"></label><label class="setting-row"><div><b>减少动态效果</b><small>关闭晃动、漂浮和呼吸动画</small></div><input id="reducedMotion" type="checkbox"></label><label class="setting-row"><div><b>声音字幕</b><small>把重要方向声转成画面提示</small></div><input id="soundCaptions" type="checkbox"></label><label class="setting-row"><div><b>单声道</b><small>取消左右声像</small></div><input id="monoAudio" type="checkbox"></label><div class="volume-list"><label><span>主音量</span><input data-volume="master" type="range" min="0" max="100" step="5"><output></output></label><label><span>音乐</span><input data-volume="music" type="range" min="0" max="100" step="5"><output></output></label><label><span>音效</span><input data-volume="effects" type="range" min="0" max="100" step="5"><output></output></label><label><span>环境</span><input data-volume="ambience" type="range" min="0" max="100" step="5"><output></output></label></div><div class="legend"><b>光边含义</b><span><i class="main"></i>主线</span><span><i class="side"></i>小事</span><span><i class="done"></i>完成</span></div></section>
@@ -79,6 +81,10 @@ let selectedLevel = 0;
 let puzzleOptions: string[] = [];
 let puzzleCompleting = false;
 let contentSignature = "";
+let economySignature = "";
+let lifeTab: "supplies" | "exchange" | "pets" | "memories" = "supplies";
+let selectedSupplyId = "trail-snack";
+const tradeQuantities: Record<string, number> = {};
 
 const audio = new AudioManager((caption, pan) => {
   soundCaption.textContent = `${pan < -0.25 ? "◀ " : pan > 0.25 ? "▶ " : ""}${caption}`;
@@ -121,6 +127,9 @@ const updateView = (view: CampaignView) => {
     view.level.startTime,
     view.elapsedSeconds,
   );
+  let lifeStatus = document.getElementById("lifeStatus");
+  if (!lifeStatus) { lifeStatus = document.createElement("p"); lifeStatus.id = "lifeStatus"; lifeStatus.className = "economy-help"; byId("economyFeedback").after(lifeStatus); }
+  lifeStatus.textContent = `${view.life.paceSeconds ? `轻快步行 ${view.life.paceSeconds}s` : "暂无步行加成"}${view.life.petCallSeconds ? ` · 伙伴靠近 ${view.life.petCallSeconds}s` : ""} · 背包内暂停计时`;
   byId("progressValue").textContent =
     `主线 ${view.solved.length} / ${view.level.puzzles.length}`;
   byId("objectiveValue").textContent = view.objective;
@@ -138,6 +147,12 @@ const updateView = (view: CampaignView) => {
     contentSignature = signature;
     renderInventory(view);
     renderJournal(view);
+  }
+  const nextEconomySignature = JSON.stringify(view.economy);
+  if (nextEconomySignature !== economySignature) {
+    economySignature = nextEconomySignature;
+    renderEconomy(view.economy);
+    renderEconomyAchievements(view.economy);
   }
 };
 
@@ -249,6 +264,7 @@ function renderInventory(view: CampaignView) {
     .forEach((button) =>
       button.addEventListener("click", () => {
         openDrawer();
+        if (button.dataset.pocket === "inventory") selectLifeTab("memories");
         document
           .querySelector<HTMLButtonElement>(
             `[data-tab='${button.dataset.pocket}']`,
@@ -257,6 +273,100 @@ function renderInventory(view: CampaignView) {
       }),
     );
 }
+
+function htmlText(text: string) { return text.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!); }
+function tradeQuantity(key: string) { return tradeQuantities[key] ?? 1; }
+function quantityControl(key: string, title: string, maximum: number) {
+  const value = tradeQuantity(key);
+  return `<label class="trade-quantity"><span>数量</span><input type="number" inputmode="numeric" min="1" max="${maximum}" step="1" value="${Number.isFinite(value) ? value : ""}" data-quantity="${key}" data-focus-key="quantity-${key}" aria-label="${htmlText(title)}数量"></label>`;
+}
+function transactionButton(action: string, id: string, title: string, disabledReason = "") {
+  const reasonId = `reason-${action}-${id}`;
+  return `<button class="trade-button" data-economy-action="${action}" data-item="${id}" data-focus-key="${action}-${id}" ${disabledReason ? `disabled aria-describedby="${reasonId}"` : ""}>${htmlText(title)}</button>${disabledReason ? `<small id="${reasonId}" class="trade-reason">${htmlText(disabledReason)}</small>` : ""}`;
+}
+function renderEconomy(economy: EconomyView) {
+  if (!economy) return;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.focusKey : undefined;
+  byId("coinBalance").textContent = String(economy.coins);
+  byId("partySummary").textContent = `跟随 ${economy.equipped.length}/${economy.equippedLimit} · 拥有 ${economy.pets.length}/${economy.ownedLimit}`;
+  byId("memoryInventory").hidden = lifeTab !== "memories";
+  const content = byId("economyContent"); content.hidden = lifeTab === "memories";
+  document.querySelectorAll<HTMLButtonElement>("[data-life-tab]").forEach(button => {
+    const selected = button.dataset.lifeTab === lifeTab;
+    button.classList.toggle("active", selected); button.setAttribute("aria-pressed", String(selected));
+  });
+  if (lifeTab === "supplies") {
+    const selected = ITEMS.find(item => item.id === selectedSupplyId) ?? ITEMS[0];
+    const count = economy.items.find(item => item.id === selected.id)?.count ?? 0;
+    const quantity = tradeQuantity(`sell-${selected.id}`);
+    const valid = Number.isSafeInteger(quantity) && quantity > 0 && quantity <= count;
+    const sellReason = !count ? "暂无物资可售" : !valid ? `数量须为 1–${count} 的整数` : economy.coins + selected.sellPrice * quantity > MAX_COINS ? "金币将超出上限" : "";
+    const useReason = !count ? "背包里还没有这份补给" : selected.id === "pet-treat" && !economy.equipped.length ? "请先安排伙伴出战" : "";
+    content.innerHTML = `<div class="supply-grid" role="group" aria-label="选择物资查看详情">${ITEMS.map(item => {
+      const held = economy.items.find(stack => stack.id === item.id)?.count ?? 0;
+      return `<button class="supply-slot ${selected.id === item.id ? "selected" : ""} ${held ? "" : "empty"}" data-supply="${item.id}" data-focus-key="supply-${item.id}" aria-pressed="${selected.id === item.id}" aria-label="${htmlText(item.title)}，持有${held}份，查看详情"><span aria-hidden="true">${item.icon}</span><b>${htmlText(item.title)}</b><small>×${held}</small></button>`;
+    }).join("")}</div><article class="supply-detail" aria-label="选中物资详情"><div class="supply-detail-title"><b>${htmlText(selected.title)}</b><small>持有 ${count} · 售价 ${selected.sellPrice}/份</small></div><p>${htmlText(selected.description)}</p><div class="trade-row">${quantityControl(`sell-${selected.id}`, selected.title, Math.max(1,count))}<div>${transactionButton("sell", selected.id, `售出 · ${valid ? quantity * selected.sellPrice : "—"} 金币`, sellReason)}</div>${selected.effect ? `<div>${transactionButton("use", selected.id, "使用 1 份", useReason)}</div>` : ""}</div></article>`;
+  } else if (lifeTab === "exchange") {
+    content.innerHTML = `<div class="life-card-list compact-shop">${economy.shop.map(item => {
+      const quantity = tradeQuantity(`buy-${item.id}`);
+      const valid = Number.isSafeInteger(quantity) && quantity > 0 && quantity <= economy.maxStack;
+      const reason = !valid ? "请输入有效的正整数数量" : item.owned + quantity > economy.maxStack ? "超过堆叠上限，请减少数量" : item.price * quantity > economy.coins ? `还差 ${item.price * quantity - economy.coins} 金币` : "";
+      return `<article class="life-card"><div class="life-card-head"><span class="life-badge" aria-hidden="true">${item.icon}</span><div><b>${htmlText(item.title)}</b><small>${item.price} 金币/份 · 背包已有 ${item.owned}</small></div></div><p>${htmlText(item.description)}</p><div class="trade-row">${quantityControl(`buy-${item.id}`, item.title, economy.maxStack)}<div>${transactionButton("buy", item.id, `兑换 · ${valid ? item.price * quantity : "—"} 金币`, reason)}</div></div></article>`;
+    }).join("")}</div>`;
+  } else if (lifeTab === "pets") {
+    content.innerHTML = `<h3 class="life-subtitle">我的伙伴 · ${economy.pets.length}/${economy.ownedLimit}</h3><div class="life-card-list compact-pets">${economy.pets.length ? economy.pets.map(pet => `<article class="life-card ${pet.equipped ? "pet-equipped" : ""}"><div class="life-card-head"><span class="pet-portrait pet-${pet.species}" role="img" aria-label="${htmlText(pet.name)}像素肖像"></span><div><b>${htmlText(pet.name)}</b><small>${pet.equipped ? "已出战 · 跟随中" : "伙伴册休息中"}</small></div></div><div class="trade-row">${transactionButton(pet.equipped ? "rest" : "equip", pet.id, pet.equipped ? "休息" : "出战", pet.canEquip ? "" : pet.disabledReason)}</div></article>`).join("") : `<p class="economy-help">出售物资换金币，结识第一位伙伴。</p>`}</div><h3 class="life-subtitle">结识新伙伴</h3><div class="life-card-list compact-pets">${economy.petShop.map(pet => `<article class="life-card"><div class="life-card-head"><span class="pet-portrait pet-${pet.id}" role="img" aria-label="${htmlText(pet.title)}像素肖像"></span><div><b>${htmlText(pet.title)}</b><small>已有 ${pet.owned} 只</small></div></div><div class="trade-row">${transactionButton("adopt", pet.id, `领养 · ${pet.price} 金币`, pet.disabledReason)}</div></article>`).join("")}</div>`;
+  }
+  if (active) {
+    const match = Array.from(content.querySelectorAll<HTMLElement>("[data-focus-key]")).find(element => element.dataset.focusKey === active);
+    if (match && !(match as HTMLButtonElement).disabled) match.focus({ preventScroll: true });
+    else if (drawer.classList.contains("open")) document.querySelector<HTMLButtonElement>(`[data-life-tab="${lifeTab}"]`)?.focus({ preventScroll: true });
+  }
+}
+function selectLifeTab(tab: typeof lifeTab) {
+  lifeTab = tab;
+  byId("economyFeedback").hidden = true;
+  if (currentView) renderEconomy(currentView.economy);
+}
+function renderEconomyAchievements(economy: EconomyView) {
+  if (!economy) return;
+  let block = document.getElementById("economyAchievements");
+  if (!block) { block = document.createElement("details"); block.id = "economyAchievements"; block.className = "journal-block"; document.querySelector('[data-panel="journal"]')!.append(block); }
+  block.innerHTML = `<summary>生活成就 · ${economy.achievements.filter(a => a.done).length}/${economy.achievements.length}</summary>${economy.achievements.map(a => `<div class="side-row ${a.done ? "done" : ""}"><i>${a.done ? "✓" : "·"}</i><span><b>${htmlText(a.title)}</b><small>${a.current}/${a.target} · ${a.done ? "已达成" : "继续旅行即可推进"}</small><progress max="${a.target}" value="${a.current}" aria-label="${htmlText(a.title)}进度"></progress></span></div>`).join("")}`;
+}
+
+document.querySelectorAll<HTMLButtonElement>("[data-life-tab]").forEach(button => button.addEventListener("click", () => {
+  selectLifeTab(button.dataset.lifeTab as typeof lifeTab); audio.play({ id: "ui.click.soft" });
+}));
+byId("economyContent").addEventListener("input", event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.dataset.quantity) return;
+  tradeQuantities[input.dataset.quantity] = input.value.trim() ? Number(input.value) : NaN;
+  if (currentView) renderEconomy(currentView.economy);
+});
+byId("economyContent").addEventListener("keydown", event => {
+  if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
+});
+byId("economyContent").addEventListener("click", event => {
+  const supply = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-supply]") : null;
+  if (supply && drawer.classList.contains("open") && ITEMS.some(item => item.id === supply.dataset.supply)) {
+    selectedSupplyId = supply.dataset.supply!;
+    if (currentView) renderEconomy(currentView.economy);
+    return;
+  }
+  const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-economy-action]") : null;
+  if (!button || button.disabled || !drawer.classList.contains("open")) return;
+  const id = button.dataset.item!, action = button.dataset.economyAction;
+  let result: EconomyResult;
+  if (action === "sell") result = game.sellItem(id, tradeQuantity(`sell-${id}`));
+  else if (action === "buy") result = game.buyItem(id, tradeQuantity(`buy-${id}`));
+  else if (action === "use") result = game.useItem(id);
+  else if (action === "adopt") result = game.buyPet(id);
+  else if (action === "equip" || action === "rest") result = game.equipPet(id, action === "equip");
+  else return;
+  byId("economyFeedback").textContent = result.message;
+  byId("economyFeedback").hidden = false;
+  byId("economyFeedback").classList.toggle("wrong", !result.ok);
+});
 
 function renderJournal(view: CampaignView) {
   let exploration = document.getElementById("explorationJournal");
@@ -499,17 +609,21 @@ const blockingOverlays = () => [campaignOverlay, puzzleOverlay, codeOverlay, dea
 function openDrawer() {
   if (!canOpenDrawer(blockingOverlays(), game.isInDeathSequence())) return;
   drawer.classList.add("open");
+  drawer.inert = false;
   drawer.setAttribute("aria-hidden", "false");
   byId("menuButton").setAttribute("aria-expanded", "true");
   game.setPaused(true);
   audio.play({ id: "ui.drawer.open" });
+  byId("drawerClose").focus();
 }
 function closeDrawer() {
   drawer.classList.remove("open");
+  drawer.inert = true;
   drawer.setAttribute("aria-hidden", "true");
   byId("menuButton").setAttribute("aria-expanded", "false");
   if (!hasVisibleModal(blockingOverlays())) game.setPaused(false);
   audio.play({ id: "ui.drawer.close" });
+  canvas.focus();
 }
 
 byId("menuButton").addEventListener("click", () =>
@@ -625,6 +739,7 @@ byId("resetSaveButton").addEventListener("click", () => {
 
 document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) =>
   button.addEventListener("click", () => {
+    byId("drawerTitle").textContent = button.dataset.tab === "inventory" ? "随身背包" : button.dataset.tab === "journal" ? "随身日志" : button.dataset.tab === "save" ? "旅程存档" : "旅程设置";
     document
       .querySelectorAll("[data-tab]")
       .forEach((item) => item.classList.toggle("active", item === button));
@@ -751,6 +866,12 @@ byId("codeInput").addEventListener("keydown", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (trapModalTab(event, byId("doorOverlay"), document.activeElement)) return;
+  if (event.key === "Tab" && drawer.classList.contains("open")) {
+    const controls = Array.from(drawer.querySelectorAll<HTMLElement>("button:not([disabled]),input:not([disabled]),select:not([disabled]),summary,[tabindex='0']")).filter(element => element.getClientRects().length > 0 && !element.closest("[hidden]"));
+    event.preventDefault();
+    if (controls.length) { const index = controls.findIndex(element => element === document.activeElement); controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length].focus(); }
+    return;
+  }
   if (event.key !== "Escape") return;
   if (!byId("doorOverlay").hidden) { byId("doorCancel").click(); return; }
   if (!puzzleOverlay.hidden && !puzzleCompleting) byId("puzzleClose").click();
@@ -777,7 +898,7 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("debug")) {
     [campaignOverlay, puzzleOverlay, codeOverlay, deathOverlay, completeOverlay, byId("doorOverlay")].forEach(element => {
       element.classList.remove("active"); element.hidden = true;
     });
-    drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true");
+    drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true"); drawer.inert = true;
     activePuzzle = null; puzzleCompleting = false;
     byId("guideCard").classList.add("collapsed"); byId("objectiveButton").setAttribute("aria-expanded", "false");
   };

@@ -1,0 +1,425 @@
+{
+  "day": 5,
+  "counts": {
+    "outside": {
+      "total": 6,
+      "container": 2,
+      "gather": 2,
+      "inspect": 2
+    },
+    "inside": {
+      "total": 13,
+      "container": 2,
+      "gather": 2,
+      "inspect": 9
+    }
+  },
+  "checks": 100,
+  "passed": 100,
+  "results": [
+    {
+      "name": "IDs, budgets, lifecycle and physical binding",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/d05-life-orchard-crate",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/d05-life-orchard-cart",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/d05-life-reed-tips",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/d05-life-path-leaves",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/d05-life-porch-stool",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/d05-life-porch-pail",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/tide-route",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/ferry-balance",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/orchard-lights",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/last-ticket",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/tea-jar",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/scarf",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/exit",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/room-door",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/d05-reeds",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/d05-dock-photo",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/initial/regression/d05-dog",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/d05-life-orchard-crate",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/d05-life-orchard-cart",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/d05-life-reed-tips",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/d05-life-path-leaves",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/d05-life-porch-stool",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/d05-life-porch-pail",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/tide-route",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/ferry-balance",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/orchard-lights",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/last-ticket",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/tea-jar",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/scarf",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/exit",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/room-door",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/d05-reeds",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/d05-dock-photo",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/complete/regression/d05-dog",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-tasting-red",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-tasting-amber",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-tasting-gold",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-tasting-dark",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-fruit-share",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-tea-share",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-clean-jar-2",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-clean-jar-3",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-clean-jar-4",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-clean-jar-5",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-clean-jar-6",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-desk-left-drawer",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/d05-life-desk-right-drawer",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/return",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-recipe",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-fruit",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-wash",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-simmer",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-preserve",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-jam-card",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-leaf-print",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-letters",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-mail",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/initial/regression/d05-tea-photo",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-tasting-red",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-tasting-amber",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-tasting-gold",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-tasting-dark",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-fruit-share",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-tea-share",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-clean-jar-2",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-clean-jar-3",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-clean-jar-4",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-clean-jar-5",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-clean-jar-6",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-desk-left-drawer",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/d05-life-desk-right-drawer",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/return",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-recipe",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-fruit",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-wash",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-simmer",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-preserve",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-jam-card",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-leaf-print",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-letters",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-mail",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/complete/regression/d05-tea-photo",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/negative/1266,345",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/negative/1290,310",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/negative/270,545",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/negative/580,650",
+      "status": "PASS"
+    },
+    {
+      "name": "outside/negative/880,620",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/210,410",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/530,310",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/670,490",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/880,250",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/1100,360",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/1160,409",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/1520,410",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/1300,585",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/1170,590",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/1450,590",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/160,640",
+      "status": "PASS"
+    },
+    {
+      "name": "inside/negative/380,685",
+      "status": "PASS"
+    }
+  ],
+  "limitations": [
+    "Data/navigation validation only; runtime economy and combined sharedDiscovery UI must be integrated centrally.",
+    "No new bitmap assets or afterArt. Lidded tasting jars are opened and reclosed; only the personal allocation is exhausted. Drawers close again after paper collection."
+  ]
+}

@@ -1,0 +1,229 @@
+{
+  "day": 8,
+  "outside": 6,
+  "inside": 11,
+  "counts": {
+    "outside": {
+      "container": 2,
+      "gather": 2,
+      "inspect": 2
+    },
+    "inside": {
+      "container": 6,
+      "gather": 2,
+      "inspect": 3
+    }
+  },
+  "sharedNodes": 2,
+  "verifiedRouteSegments": 229,
+  "artChecks": 1,
+  "initialAndFullReachability": true,
+  "doorwayRegression": true,
+  "nearestUsed": false,
+  "results": [
+    {
+      "scene": "outside",
+      "id": "d08-life-west-cart",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 259,
+        "y": 391
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "outside",
+      "id": "d08-life-lower-cart",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 513,
+        "y": 801
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "outside",
+      "id": "d08-life-platform-chips",
+      "kind": "gather",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 375,
+        "y": 505
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "outside",
+      "id": "d08-life-track-chips",
+      "kind": "gather",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 400,
+        "y": 752
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "outside",
+      "id": "d08-life-mine-lantern",
+      "kind": "inspect",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 564,
+        "y": 195
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "outside",
+      "id": "d08-life-track-sleeper",
+      "kind": "inspect",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 131,
+        "y": 563
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-upper-crate",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 215.311004784689,
+        "y": 507.86397449521786
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-right-crate",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 295.6937799043062,
+        "y": 633.1562167906483
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-small-box",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 285.1674641148325,
+        "y": 574.8140276301807
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-lower-sealed-crate",
+      "kind": "inspect",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 291.86602870813397,
+        "y": 680.0212539851223
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-left-tin",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 266.9856459330144,
+        "y": 476.30180658873536
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-right-tin",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 326.3157894736842,
+        "y": 467.69394261424014
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-shelf-case",
+      "kind": "container",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 411.48325358851673,
+        "y": 464.8246546227418
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-copper-can",
+      "kind": "inspect",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 563.6363636363636,
+        "y": 332.8374070138151
+      },
+      "sharedDiscovery": null
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-quartz-copy",
+      "kind": "gather",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 387.5598086124402,
+        "y": 463.8682252922423
+      },
+      "sharedDiscovery": "d08-quartz-copy"
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-wick-cloth",
+      "kind": "gather",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 621.0526315789474,
+        "y": 335.7066950053135
+      },
+      "sharedDiscovery": "d08-wick-cloth"
+    },
+    {
+      "scene": "inside",
+      "id": "d08-life-table-joint",
+      "kind": "inspect",
+      "initial": true,
+      "full": true,
+      "approach": {
+        "x": 575.1196172248804,
+        "y": 334.75026567481405
+      },
+      "sharedDiscovery": null
+    }
+  ]
+}

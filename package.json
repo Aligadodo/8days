@@ -1,6 +1,6 @@
 {
   "name": "one-more-day-game",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "audit:layout": "node scripts/check-layout.mjs",
     "audit:visual": "node --test tests/visual-contract.test.mjs",
     "audit:exploration": "node scripts/check-exploration.mjs",
+    "audit:life": "node --test tests/life-content.test.mjs tests/life-runtime.test.mjs tests/economy.test.mjs tests/spatial-015.test.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

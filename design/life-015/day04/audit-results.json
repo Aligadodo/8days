@@ -1,0 +1,163 @@
+{
+  "day": 4,
+  "nodes": 13,
+  "failures": 0,
+  "results": [
+    {
+      "scene": "outside",
+      "id": "d04-life-lower-fronds",
+      "kind": "gather",
+      "approach": {
+        "x": 460,
+        "y": 780
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d04-life-bridge-fronds",
+      "kind": "gather",
+      "approach": {
+        "x": 431,
+        "y": 486
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d04-life-step-seam",
+      "kind": "inspect",
+      "approach": {
+        "x": 525,
+        "y": 699
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d04-life-bridge-post",
+      "kind": "inspect",
+      "approach": {
+        "x": 484,
+        "y": 532
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d04-life-lower-rail",
+      "kind": "inspect",
+      "approach": {
+        "x": 390,
+        "y": 814
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d04-life-east-bridge",
+      "kind": "inspect",
+      "approach": {
+        "x": 1222,
+        "y": 698
+      },
+      "initial": false,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-parts-tin",
+      "kind": "container",
+      "approach": {
+        "x": 1085,
+        "y": 396
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-cord-offcuts",
+      "kind": "gather",
+      "approach": {
+        "x": 1048,
+        "y": 390
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-window-cuttings",
+      "kind": "gather",
+      "approach": {
+        "x": 238,
+        "y": 492
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-kettle-share",
+      "kind": "container",
+      "approach": {
+        "x": 1350,
+        "y": 491
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-cat-bowl",
+      "kind": "inspect",
+      "approach": {
+        "x": 268,
+        "y": 645
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-reading-stool",
+      "kind": "inspect",
+      "approach": {
+        "x": 432,
+        "y": 560
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d04-life-partition-pot",
+      "kind": "inspect",
+      "approach": {
+        "x": 715,
+        "y": 391
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    }
+  ]
+}

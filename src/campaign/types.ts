@@ -1,4 +1,6 @@
 import type { AudioCue } from "../audio/AudioManager";
+import type { EconomyState, EconomyView } from "./life/economy";
+import type { LifeState } from "./life/runtime";
 
 export interface Point {
   x: number;
@@ -135,9 +137,13 @@ export interface CampaignSave {
   completed: string[];
   stamps: string[];
   levels: Record<string, PersistedLevelState>;
+  economy?: EconomyState;
+  life?: LifeState;
 }
 
 export interface CampaignView {
+  economy: EconomyView;
+  life: { activeSeconds:number; collected:number; available:number; total:number; paceSeconds:number; petCallSeconds:number };
   exploration: {
     roomId: string | null; sceneName: string; roomName?: string;
     flags: string[]; visited: number;

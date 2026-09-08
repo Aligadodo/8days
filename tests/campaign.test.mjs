@@ -494,7 +494,7 @@ test("old checkpoints relocate to authored floor while preserving solved clues a
   game.destroy();
 });
 
-test("stale routes cannot cross walls, deep wall clicks do not snap through, and remote interactions do not fire", () => {
+test("stale routes cannot cross walls, deep wall clicks approach a safe edge, and remote interactions do not fire", () => {
   let opened = 0;
   const game = new CampaignGame(new Canvas(), {
     ...hooks,
@@ -504,7 +504,15 @@ test("stale routes cannot cross walls, deep wall clicks do not snap through, and
   game.level = { ...game.level, hazards: [] };
   const behindDesk = { x: 660, y: 370 };
   game.navigate(behindDesk, null, false);
-  assert.equal(game.path.length, 0);
+  assert.ok(game.path.length > 0, "ground clicks approach a reachable floor edge rather than doing nothing");
+  let previous = game.player;
+  for (const point of game.path) {
+    assert.ok(game.nav.isWalkable(point));
+    assert.ok(game.nav.visible(previous, point), "fallback cannot snap a route across furniture");
+    previous = point;
+  }
+  assert.ok(Math.hypot(previous.x - behindDesk.x, previous.y - behindDesk.y) > 20, "keep the destination outside the desk");
+  assert.equal(game.nav.route(game.player, behindDesk, () => false, 0).length, 0, "exact interaction mode cannot use the ground fallback");
   const breaker = game.entities.find((e) => e.id === "breaker");
   game.arrive(breaker);
   assert.equal(game.pending, null);

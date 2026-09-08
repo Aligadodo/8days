@@ -1,0 +1,295 @@
+{
+  "day": 2,
+  "nodes": 24,
+  "failures": 0,
+  "results": [
+    {
+      "scene": "outside",
+      "id": "d02-life-copier-drawer",
+      "kind": "container",
+      "approach": {
+        "x": 827,
+        "y": 478
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-copy-box",
+      "kind": "container",
+      "approach": {
+        "x": 850,
+        "y": 552
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-blank-scraps",
+      "kind": "gather",
+      "approach": {
+        "x": 767,
+        "y": 779
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-desk-scraps",
+      "kind": "gather",
+      "approach": {
+        "x": 632,
+        "y": 650
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-west-drawers",
+      "kind": "container",
+      "approach": {
+        "x": 330,
+        "y": 566
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-south-files",
+      "kind": "container",
+      "approach": {
+        "x": 796,
+        "y": 749
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-desk-plant",
+      "kind": "inspect",
+      "approach": {
+        "x": 499,
+        "y": 804
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "outside",
+      "id": "d02-life-copier-tray",
+      "kind": "inspect",
+      "approach": {
+        "x": 827,
+        "y": 478
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-tea-drawer",
+      "kind": "container",
+      "approach": {
+        "x": 269,
+        "y": 529
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-red-toolbox",
+      "kind": "container",
+      "approach": {
+        "x": 1356.9377990430621,
+        "y": 492.5611052072264
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-low-box",
+      "kind": "container",
+      "approach": {
+        "x": 528,
+        "y": 541
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-album-box",
+      "kind": "container",
+      "approach": {
+        "x": 1337.799043062201,
+        "y": 746.0148777895855
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-tea-urn",
+      "kind": "gather",
+      "approach": {
+        "x": 269,
+        "y": 529
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-front-cuttings",
+      "kind": "gather",
+      "approach": {
+        "x": 1337.799043062201,
+        "y": 746.0148777895855
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-back-files",
+      "kind": "inspect",
+      "approach": {
+        "x": 796.1722488038278,
+        "y": 371.09458023379386
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-archive-box-left",
+      "kind": "container",
+      "approach": {
+        "x": 796.1722488038278,
+        "y": 371.09458023379386
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-archive-box-middle",
+      "kind": "container",
+      "approach": {
+        "x": 896.6507177033493,
+        "y": 353.87885228480343
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-archive-box-right",
+      "kind": "container",
+      "approach": {
+        "x": 985.6459330143541,
+        "y": 326.1424017003188
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-under-desk-left",
+      "kind": "container",
+      "approach": {
+        "x": 1157.8947368421052,
+        "y": 522.2104144527099
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-under-desk-middle",
+      "kind": "container",
+      "approach": {
+        "x": 1205.7416267942583,
+        "y": 536.5568544102019
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-under-desk-right",
+      "kind": "container",
+      "approach": {
+        "x": 1387.5598086124403,
+        "y": 488.7353878852285
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-right-files",
+      "kind": "inspect",
+      "approach": {
+        "x": 1009.5693779904307,
+        "y": 361.53028692879917
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-cat-bed",
+      "kind": "inspect",
+      "approach": {
+        "x": 311.0047846889952,
+        "y": 510.7332624867163
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    },
+    {
+      "scene": "inside",
+      "id": "d02-life-tea-cupboard",
+      "kind": "inspect",
+      "approach": {
+        "x": 269,
+        "y": 529
+      },
+      "initial": true,
+      "full": true,
+      "conflicts": []
+    }
+  ]
+}

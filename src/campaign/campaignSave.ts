@@ -3,6 +3,9 @@ import { WORLDS } from "./worldDesign";
 import { EXPLORATION_PACKS } from "./exploration/packs";
 import { allDiscoveries } from "./exploration/discoveries";
 import type { CampaignSave, PersistedLevelState } from "./types";
+import { restoreEconomy } from "./life/economy";
+import { restoreLife } from "./life/runtime";
+import { LIFE_PACKS } from "./life/packs";
 
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -16,7 +19,7 @@ const fog = (value: unknown) => Array.isArray(value)
 /** localStorage is untrusted: migrate field-by-field, preserving valid v2 progress. */
 export function restoreCampaignSave(value: unknown): CampaignSave {
   const source = record(value);
-  const fresh: CampaignSave = { version: 2, unlocked: 1, completed: [], stamps: [], levels: {} };
+  const fresh: CampaignSave = { version: 2, unlocked: 1, completed: [], stamps: [], levels: {},economy:restoreEconomy(undefined),life:restoreLife(undefined,[]) };
   if (source.version !== 2) return fresh;
   const completed = strings(source.completed, LEVELS.map(l => l.id));
   const levels: Record<string, PersistedLevelState> = {};
@@ -46,5 +49,6 @@ export function restoreCampaignSave(value: unknown): CampaignSave {
     };
   });
   return { version: 2, unlocked: Math.max(1, count(source.unlocked, 8)), completed,
-    stamps: LEVELS.filter(l => completed.includes(l.id)).map(l => l.stamp), levels };
+    stamps: LEVELS.filter(l => completed.includes(l.id)).map(l => l.stamp), levels,
+    economy:restoreEconomy(source.economy),life:restoreLife(source.life,LIFE_PACKS.flatMap(pack=>[...pack.outside,...pack.inside])) };
 }

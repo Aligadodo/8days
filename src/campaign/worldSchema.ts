@@ -18,6 +18,9 @@ export interface ObjectVisual {
   frame?: number;
   layer?: "ground" | "actor";
   depth?: number;
+  /** Visible front edge at floor level, in world coordinates. Used with actor feet,
+   * not the artwork's center; sloping and segmented edges are supported. */
+  contactLine?: Point[];
 }
 export interface RasterArt {
   src: string;
@@ -58,6 +61,15 @@ export interface BuiltSurface {
   variants?: RasterArt[];
   spacing?: number;
 }
+export interface WorldOccluder {
+  name?: string;
+  polygon: Polygon;
+  /** Legacy horizontal contact fallback; new oblique furniture should author a line. */
+  depth: number;
+  contactLine?: Point[];
+  requires?: string;
+  unless?: string;
+}
 export interface WorldDesign {
   regions: WalkRegion[];
   obstacles: Obstacle[];
@@ -71,7 +83,7 @@ export interface WorldDesign {
   exit: Point;
   mechanisms: WorldMechanism[];
   surfaces: BuiltSurface[];
-  occluders: { polygon: Polygon; depth: number }[];
+  occluders: WorldOccluder[];
   puzzleAccess: Record<string, string[]>;
 }
 export const area = (

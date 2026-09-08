@@ -92,6 +92,12 @@ export default world({
         ],
         45,
       ),
+      // v0.15: visible dirt apron south of the orchard crate/cart; both
+      // container bodies remain blocked. Connect the existing road broadly.
+      area("果园箱车前的实土装卸坪", [
+        [1208, 369], [1250, 362], [1303, 350], [1337, 365],
+        [1334, 397], [1284, 432], [1220, 401],
+      ]),
       ...path(
         "右岸木栈道",
         [

@@ -1,6 +1,10 @@
 import { world, area, path, obstacle, box } from "../worldSchema";
 import { polygon } from "../navigation";
 
+// The opened-partition painting is 1672×941. These are traced floor contacts,
+// not the center of the tall poster/door artwork.
+const native = (points: number[][]) => polygon(points.map(([x,y]) => [x * 1600 / 1672, y * 900 / 941]));
+
 export default world({
   spawn: { x: 714, y: 824 },
   regions: [
@@ -78,6 +82,8 @@ export default world({
   ],
   obstacles: [
     box("茶水间东北墙柱与墙顶禁区", 981, 270, 46, 42),
+    obstacle("暗门左侧保留矮墙的地面脚印", [[880,329],[892,334],[907,324],[907,335],[892,344],[879,338]]),
+    obstacle("暗门右侧保留壁板的地面脚印", [[949,298],[960,301],[1013,274],[1013,283],[960,311],[949,307]]),
     obstacle("会议室玻璃墙与桌椅", [
       [24, 258],
       [708, 73],
@@ -238,23 +244,27 @@ export default world({
       mount: "ground",
       support: "南侧档案柜旁原生带警示标的电气柜，操作点在柜门前真实地砖上",
       depth: 837,
+      contactLine: polygon([[991,836],[1061,812]]),
     },
     alarm: {
       mount: "wall",
       support:
         "电梯右侧墙柱原生红色火警面板，按墙面透视命中，不再叠放独立红按钮立柱",
       depth: 352,
+      contactLine: polygon([[1333,342],[1380,354]]),
     },
     "stair-map": {
       mount: "wall",
       support:
         "复印区保留墙段上的原生疏散纸图，避开新增暗门的可移动隔断，从柜前地板读图",
       depth: 530,
+      contactLine: polygon([[898,535],[1006,589],[1088,548]]),
     },
     "door-code": {
       mount: "wall",
       support: "最右消防门原生门侧磁锁/门框，站在门外绿色地灯走廊输入",
       depth: 346,
+      contactLine: polygon([[1426,353],[1500,321]]),
     },
     "water-coworker": {
       mount: "actor",
@@ -266,11 +276,13 @@ export default world({
       mount: "table",
       support: "中央工位原生显示器，取消第二张桌子和显示器，沿桌子南侧操作",
       depth: 431,
+      contactLine: polygon([[542,408],[664,439],[778,405]]),
     },
     exit: {
       mount: "door",
       support: "楼梯下方原生出口门口，脚底与绿色指示地灯同一地坪",
       depth: 810,
+      contactLine: polygon([[1178,870],[1256,842]]),
     },
   },
   mechanisms: [
@@ -318,6 +330,7 @@ export default world({
         support:
           "茶水间前方薄隔墙中可滑开的壁板；开启时真实门槛砖面贯通两侧，原黑门与墙柱不作为连接路线",
         depth: 326,
+        contactLine: polygon([[908,326],[949,305]]),
       },
       art: {
         open: {
@@ -353,6 +366,7 @@ export default world({
         support:
           "电梯右侧整块外墙中的实际服务门，门槛落在电梯厅的砖地上，不是下方绿色走道护栏",
         depth: 346,
+        contactLine: polygon([[1426,353],[1500,321]]),
       },
       art: {
         open: {
@@ -366,6 +380,29 @@ export default world({
       controlledBy: "door-code",
       hint: "先解开安全门密码；门后的台阶不能穿墙绕过。",
       complete: "安全门已打开，沿楼梯离开。",
+    },
+  ],
+  occluders: [
+    {
+      // The opened painting changes the short wall's cap. Only this lower body
+      // is common to the original closed partition; never mask the whole gap.
+      name: "闭合暗门左侧固定墙身：保留原画共同部分",
+      unless: "office-latch", depth: 341,
+      polygon: native([[921,314],[948,302],[948,344],[932,354],[921,351]]),
+      contactLine: native([[921,351],[932,354],[948,344]]),
+    },
+    {
+      name: "已开暗门左侧短墙：仅遮住脚底在墙后的角色",
+      requires: "office-latch", depth: 341,
+      polygon: native([[919,297],[940,288],[948,293],[949,344],[932,356],[920,352]]),
+      contactLine: native([[920,352],[932,356],[949,344]]),
+    },
+    {
+      // This retained panel exists in both paintings, including before unlock.
+      name: "固定右侧壁板：开关两态共用斜向地面接触线",
+      depth: 310,
+      polygon: native([[992,270],[1059,242],[1059,296],[1003,324],[992,321]]),
+      contactLine: native([[992,321],[1003,324],[1059,296]]),
     },
   ],
   puzzleAccess: { alarm: ["office-latch"], "stair-map": ["office-latch"] },

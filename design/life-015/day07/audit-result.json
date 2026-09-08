@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "scene": "outside",
+      "total": 7,
+      "container": 2,
+      "gather": 2,
+      "inspect": 3
+    },
+    {
+      "scene": "inside",
+      "total": 7,
+      "container": 2,
+      "gather": 2,
+      "inspect": 3
+    }
+  ],
+  "checks": [
+    "initial and full flag route for every authored stance",
+    "every segment visible",
+    "room entrance and return remain reachable",
+    "sharedDiscovery exact stance and polygon",
+    "drawer PNG crop and exact artBounds registration; baked inside patch; stance clearance >25",
+    "unique IDs loot enums renewal minimum"
+  ],
+  "pending": [
+    "remaining three container open-state raster assets",
+    "browser runtime economy persistence and shared interactions"
+  ]
+}

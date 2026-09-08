@@ -3,10 +3,12 @@ import type { LevelDefinition, Point } from "./types";
 import { WORLDS, type WorldMechanism, type ObjectVisual } from "./worldDesign";
 import type { Polygon } from "./navigation";
 import type { DiscoveryNode } from "./exploration/schema";
+import type { LifeNode } from "./life/schema";
 
 export interface Entity extends Point {
   id: string;
-  type: "puzzle" | "side" | "exit" | "mechanism" | "discovery" | "portal";
+  type: "puzzle" | "side" | "exit" | "mechanism" | "discovery" | "portal" | "life";
+  life?: LifeNode;
   discovery?: DiscoveryNode;
   portal?: string;
   approach: Point;
@@ -18,6 +20,10 @@ export interface Entity extends Point {
   height: number;
   doneFrame?: number;
   name: string;
+}
+export function lifeEntity(node: LifeNode): Entity {
+  return {...node.position,id:node.id,name:node.title,type:"life",life:node,
+    approach:{...node.approach},baked:node.baked,visual:node.visual,atlas:"world-props",frame:0,height:node.visual.height??35};
 }
 type Art = [AtlasName, number, number, number?];
 const world = (index: number, height = 65): Art => [

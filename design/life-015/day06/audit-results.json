@@ -1,0 +1,46 @@
+{
+  "counts": {
+    "outside": {
+      "total": 6,
+      "container": 1,
+      "gather": 2,
+      "inspect": 3
+    },
+    "inside": {
+      "total": 6,
+      "container": 1,
+      "gather": 2,
+      "inspect": 3
+    }
+  },
+  "checks": [
+    "outside/initial/d06-life-worn-pack",
+    "outside/initial/d06-life-bridge-knot",
+    "outside/initial/d06-life-bench-joint",
+    "outside/initial/d06-life-camp-seeds",
+    "outside/initial/d06-life-path-stones",
+    "outside/initial/d06-life-tent-seam",
+    "outside/full/d06-life-worn-pack",
+    "outside/full/d06-life-bridge-knot",
+    "outside/full/d06-life-bench-joint",
+    "outside/full/d06-life-camp-seeds",
+    "outside/full/d06-life-path-stones",
+    "outside/full/d06-life-tent-seam",
+    "inside/initial/d06-life-recovery-tray",
+    "inside/initial/d06-life-light-cloth",
+    "inside/initial/d06-life-blue-cloth",
+    "inside/initial/d06-life-stove-poker",
+    "inside/initial/d06-life-stove",
+    "inside/initial/d06-life-door-latch",
+    "inside/full/d06-life-recovery-tray",
+    "inside/full/d06-life-light-cloth",
+    "inside/full/d06-life-blue-cloth",
+    "inside/full/d06-life-stove-poker",
+    "inside/full/d06-life-stove",
+    "inside/full/d06-life-door-latch"
+  ],
+  "limitations": [
+    "Outside 1 container, inside 1; no persistent open-state raster yet.",
+    "No live runtime economy/save test; no afterArt."
+  ]
+}
