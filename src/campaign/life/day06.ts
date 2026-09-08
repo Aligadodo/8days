@@ -9,6 +9,9 @@ const shared=(id:string,life:Pick<LifeNode,'id'|'title'|'kind'|'description'|'em
   return {...life,position:{...n.position},approach:{...n.approach},baked:n.baked!,visual:{...n.visual,depth:n.visual.depth??n.position.y},sharedDiscovery:id};
 };
 const pack:LifePack={day:6,outside:[
+  shared('d06-rain-petals',{id:'d06-life-rain-petal-fiber',title:'桥头花簇下的雨落叶',kind:'gather',lootTable:'cloth',renewSeconds:360,
+    description:'先记下原来被雨压低的白花，再从岸侧花簇脚边拣起自然落下的少量花叶纤维。脚留在桥头实地，不折花、不解桥索，等新的雨落叶慢慢积下。',
+    emptyText:'这轮雨落花叶已收好。白花仍在岸边，原来的雨中发现保留；不要为了收集走下护岸。'}),
   shared('d06-worn-pack',{id:'d06-life-worn-pack',title:'旧登山包里的备用布料',kind:'container',lootTable:'cloth',description:'营地主人将旧包外袋中的备用布料赠给避雨旅人。解开外袋扣带，取一份，再把袋口扣回去；保留原来观察补线的发现。',emptyText:'这一份备用布料已取走，外袋已扣回，包和其余装备仍放在木凳上。'}),
   {id:'d06-life-bridge-knot',title:'吊桥东端的缆绳结',kind:'inspect',position:p(1306,580),approach:{x:1265,y:526},
     baked:poly([[1293,564],[1309,560],[1318,566],[1315,589],[1303,595],[1294,584]]),

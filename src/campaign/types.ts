@@ -1,6 +1,7 @@
 import type { AudioCue } from "../audio/AudioManager";
 import type { EconomyState, EconomyView } from "./life/economy";
 import type { LifeState } from "./life/runtime";
+import type { SupplyView } from "./life/opportunities";
 
 export interface Point {
   x: number;
@@ -142,6 +143,7 @@ export interface CampaignSave {
 }
 
 export interface CampaignView {
+  supplies: SupplyView;
   economy: EconomyView;
   life: { activeSeconds:number; collected:number; available:number; total:number; paceSeconds:number; petCallSeconds:number };
   exploration: {
@@ -149,7 +151,7 @@ export interface CampaignView {
     flags: string[]; visited: number;
     items: { id: string; title: string; category: string }[];
     discoveries: { id: string; title: string; location: string; description: string; done: boolean }[];
-    achievements: { id: string; title: string; description: string; done: boolean }[];
+    achievements: { id: string; title: string; description: string; done: boolean; current:number; target:number }[];
     album: { day: number; title: string; found: number; total: number; visited: boolean }[];
   };
   worldFlags: string[];

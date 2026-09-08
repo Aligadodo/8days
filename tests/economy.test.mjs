@@ -146,9 +146,9 @@ test("achievement progress persists and first-day initial supplies can afford fi
   assert.equal(before.find(a=>a.id==="life-company").current,1);
 });
 
-test("UI contract: four inner pages preserve memories, atomic methods, visible reasons, no new HUD", () => {
+test("UI contract: five direct destinations preserve memories, atomic methods and visible reasons", () => {
   const source=readFileSync("src/main.ts","utf8"), css=readFileSync("src/style.css","utf8");
-  for(const tab of ["supplies","exchange","pets","memories"]) assert.ok(source.includes(`data-life-tab="${tab}"`));
+  for(const tab of ["inventory","shop","companions","achievements","more"]) assert.ok(source.includes(`data-tab="${tab}"`));
   for(const method of ["sellItem","buyItem","useItem","buyPet","equipPet"]) assert.ok(source.includes(`game.${method}(`));
   assert.ok(source.includes('id="inventoryGrid"')&&source.includes('id="economyFeedback"')&&source.includes("aria-describedby"));
   assert.ok(source.includes("drawer.inert = true")&&source.includes("drawer.inert = false"));

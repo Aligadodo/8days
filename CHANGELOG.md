@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.0 - 2026-09-08
+
+- Exposed Backpack, Shop, Companions, Achievements and More as direct drawer destinations, with readable HUD labels and a dedicated achievement quick slot.
+- Added a dismissible/reopenable introduction, current-scene supply counts, known safe resource recommendations, exact approach navigation, cooldown guidance and hover-only action/loot information.
+- Combined global and local achievements into visible condition/progress cards and completion filters; retained clues, journal, save and settings under More.
+- Added 15 renewable supply sources through 11 new nodes and four upgrades of existing interactions. Total: 138 life definitions, including 47 renewable sources, 41 one-time containers and 50 inspections.
+- Migrated two formerly one-time public containers to replenishable supplies with a full first cooldown, preserving old claims without an upgrade-time bonus.
+- Kept artwork, collision, mainline requirements, prices and active-time renewal rules intact. DAY05's new gathering stance was corrected to genuine reachable floor.
+- Corrected post-transaction and nested-page keyboard focus, clarified stock versus actually guidable resources, and made the introduction avoid the expanded/collapsed minimap. All 255 tests, both eight-map audits and the production build pass; isolated browser sampling covers the collection/shop/achievement loop, persistence and narrow layouts.
+
 ## 0.15.0 - 2026-09-08
 
 - Added 127 life interactions across 16 scenes (43 one-time containers, 32 renewable sources, 52 repeatable inspections; 13 share existing discovery objects).

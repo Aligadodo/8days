@@ -1,4 +1,5 @@
 import type { LifePack, LifeNode } from "./schema";
+import exploration from "../exploration/day03";
 import { polygon } from "../navigation";
 const p=(x:number,y:number)=>({x:x*1600/1672,y:y*900/941});
 const n=(id:string,title:string,kind:LifeNode["kind"],shape:number[][],at:number[],stand:number[],depth:number,description:string,emptyText:string,lootTable?:LifeNode["lootTable"]):LifeNode=>({id:`d03-life-${id}`,title,kind,position:p(at[0],at[1]),approach:p(stand[0],stand[1]),baked:polygon(shape.map(([x,y])=>[p(x,y).x,p(x,y).y])),visual:{mount:"ground",support:"待下方逐物支撑标定覆盖",depth:p(0,depth).y},description,emptyText,...(lootTable?{lootTable}:{}),...(kind==="gather"?{renewSeconds:360}:{})});
@@ -10,6 +11,12 @@ const pack:LifePack={day:3,outside:[
  n("hive-left","左蜂箱的巢门","inspect",[[1398,565],[1441,572],[1465,588],[1450,638],[1402,630]],[1428,602],[1398,664],642,"最左侧真实木蜂箱，只从外侧观察巢门，不开蜂巢、不取蜂蜜；保留原看蜂支线。","蜜蜂仍在进出，保持距离，不伸手进箱。"),
  n("hive-middle","中蜂箱的防雨顶","inspect",[[1480,562],[1536,570],[1556,587],[1539,634],[1484,627]],[1516,596],[1454,555],637,"中间真实蜂箱的斜顶与箱缝，从北侧已有小径观察，不打开活跃蜂群的住处。","箱顶挡着雨露，蜂群的储粮留给它们。"),
  n("bridge-stone","桥面石块的纹路","inspect",[[534,618],[553,616],[579,623],[566,636],[538,632]],[551,621],[535,619],637,"旧石桥面已有嵌石，站在桥面看纹路，不撬走承重石。","石块仍稳稳留在桥里，只把纹路记下来。"),
+ ...exploration.outside.filter(node=>node.id==="d03-fallen-petal").map((node):LifeNode=>({
+  id:"d03-life-roadside-petals",title:"路边花簇的自然落叶",kind:"gather",position:node.position,approach:node.approach,
+  baked:node.baked!,visual:{...node.visual,layer:"ground"},sharedDiscovery:node.id,lootTable:"cloth",renewSeconds:360,
+  description:"先保留原来那片落花的春日发现，再从同一花簇脚边拣一小份自然脱落的花叶纤维。活花、根部和整片花田都留下，等新的落叶慢慢积下。",
+  emptyText:"这轮自然落叶已经收过，原来的落花记忆仍在；活花留给风和蜜蜂，不反复摘取。",
+ })),
 ],inside:[
  n("seed-drawer-left","左种子柜的共享抽屉","container",[[309,336],[348,324],[349,347],[310,361]],[330,342],[338,417],392,"后墙长柜左下真实抽屉；花匠指定为分享的零散园艺料，拉开取一份后推回。","共享份已领取，抽屉推回，珍藏种子不动。","herbs"),
  n("seed-drawer-right","右种子柜的回收抽屉","container",[[543,294],[582,281],[582,306],[543,318]],[563,301],[607,351],344,"后墙长柜右下真实抽屉；花匠允许取用的包装回收料，打开取一份后合好。","这一抽屉的回收份额已取过。","paper"),
@@ -19,6 +26,7 @@ const pack:LifePack={day:3,outside:[
  n("lavender","桌边晾好的紫花","gather",[[443,497],[462,485],[480,487],[489,506],[476,526],[448,518]],[473,503],[472,639],585,"中央桌前沿真实紫花束，花匠整理的干花共享份只取少量，整束留桌。","这批干花份额已领过，等下一次整理。","herbs"),
  n("tool-seed-tray","工具台上的分类盒","inspect",[[157,297],[211,280],[245,321],[205,350],[165,336]],[201,317],[238,464],465,"左工作台后部已有敞口种子分类盒，观察格子里的包装，避开前沿剪刀热区。","每一格仍整齐，不带走花匠的样本。"),
  n("table-sorter","中央分拣格盒","inspect",[[570,417],[643,403],[699,424],[671,460],[612,474],[570,450]],[631,435],[751,475],585,"中央桌东侧真实开放分格木盒，只检查不同种子包的分类；不覆盖后侧已有奖励纸包叠。","样本仍留在格子里，勿忘我奖励由原照料链领取。"),
+ n("tool-pot-cuttings","工具台草盆的修剪叶","gather",[[119,317],[130,309],[141,315],[149,327],[143,338],[124,338]],[134,327],[238,464],465,"左工具台上真实小陶盆里是花匠养护的草株。按花匠的分享规矩取一小份已修剪草叶，盆、活株与前方剪刀全部原位保留，下一轮整理后再领。","这轮草盆修剪叶已分过，花匠还未整理下一份；请保留活株。","herbs"),
 ]};
 const supports: Record<string, Pick<LifeNode["visual"], "mount" | "support">> = {
   "d03-life-picnic-hamper": { mount: "ground", support: "野餐席上的藤编篮，命中上部真实提手。" },
@@ -36,6 +44,7 @@ const supports: Record<string, Pick<LifeNode["visual"], "mount" | "support">> = 
   "d03-life-lavender": { mount: "table", support: "中央分拣桌前沿紫色干花束。" },
   "d03-life-tool-seed-tray": { mount: "table", support: "左工具台后部敞口分格木盒。" },
   "d03-life-table-sorter": { mount: "table", support: "中央分拣桌东半部敞口种子格盒。" },
+  "d03-life-tool-pot-cuttings": { mount: "table", support: "左工具台紫花盆右侧真实小陶草盆，轮廓只到盆沿枝叶，取用从前方木地板完成。" },
 };
 for(const node of [...pack.outside,...pack.inside]) if(supports[node.id]) node.visual={...node.visual,...supports[node.id]};
 export default pack;

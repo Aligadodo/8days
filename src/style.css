@@ -385,6 +385,49 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .compact-pets .trade-row { margin: 0; }
 .compact-pets .trade-reason { grid-column: 1 / -1; }
 .life-subtitle { margin-top: 11px; }
+.hud-top { grid-template-columns: 150px minmax(220px,610px) 178px; }
+.hud-actions .readable-menu { width: 120px; min-width: 120px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.readable-menu b { font-size: 11px; white-space: nowrap; }
+.drawer-tabs { grid-template-columns: repeat(5,minmax(0,1fr)); }
+.drawer-tabs button span { font-size: 11px; }
+.achievement-slot > b { display: block; }
+.life-onboarding { position:absolute; left:16px; bottom:77px; z-index:7; width:min(455px,calc(100% - 32px)); padding:10px 12px; background:#18363de8; color:#e4e8ce; pointer-events:none; }
+.life-onboarding > b { font-size:12px; }
+.life-onboarding p { font-size:10px; line-height:1.6; margin:5px 18px 7px 0; }
+.life-onboarding > div { display:flex; gap:5px; flex-wrap:wrap; }
+.life-onboarding button { pointer-events:auto; min-height:30px; padding:4px 8px; font-size:10px; background:#355d58; border:1px solid #91b699; color:#fff0bc; cursor:pointer; }
+.life-onboarding .life-guide-close { position:absolute; right:6px; top:5px; border:0; background:transparent; font-size:17px; min-width:28px; }
+.nearby-supply-panel { padding:8px; margin:8px 0; border:1px solid #597c71; background:#203f41; }
+.nearby-title { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.nearby-title b { font-size:11px; color:#e0deae; }
+.nearby-title button,.shop-intro button { font-size:10px; padding:5px 8px; background:#3d6058; color:#f7ecc8; border:1px solid #88a480; cursor:pointer; }
+.nearby-title button:disabled { color:#93a6a5; border-color:#526d6a; cursor:default; }
+.nearby-supply-panel > small { display:block; margin-top:3px; font-size:10px; color:#abc9bf; }
+.nearby-supply-panel p { margin:7px 0 0; font-size:10px; line-height:1.6; color:#bfd4cd; }
+.nearby-recommendations { display:grid; gap:3px; margin-top:5px; }
+.nearby-recommendations button { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:33px; width:100%; padding:4px 6px; background:#2e4c48; border:0; text-align:left; cursor:pointer; }
+.nearby-recommendations span { display:grid; gap:2px; }.nearby-recommendations b { font-size:10px; color:#ebebc5; }.nearby-recommendations small { font-size:9px; color:#9dbcb4; }.nearby-recommendations i { font-size:10px; font-style:normal; color:#e4dca2; white-space:nowrap; }
+.shop-intro { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:9px 0; }.shop-intro > b { font-size:12px; color:#f5e7b2; }
+.more-routes { display:grid; gap:9px; }.more-routes button { padding:13px; display:grid; gap:6px; text-align:left; background:#2c474e; border:1px solid #668276; cursor:pointer; }.more-routes b { font-size:13px; color:#f1e5b3; }.more-routes small { font-size:10px; color:#b3ccca; }
+.achievement-overview > b { font-size:18px; color:#f0dea1; }.achievement-overview p { font-size:11px; color:#abc4c2; }
+.achievement-filters { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin:12px 0; }.achievement-filters button { border:1px solid #56796f; background:#213e47; padding:7px; color:#b7ceca; font-size:11px; cursor:pointer; }.achievement-filters button.active { color:#fff2ae; background:#43675b; border-color:#c4cd92; }
+.achievement-cards { display:grid; gap:11px; }.achievement-card { padding:12px; border:1px solid #5b747b; background:#263f4a; }.achievement-card.done { border-color:#9cb881; background:#2b4c43; }
+.achievement-card > div { display:flex; gap:7px; align-items:center; }.achievement-card > div > span { color:#d7cb91; }.achievement-card b { flex:1; font-size:12px; color:#eee3b7; }.achievement-card small { font-size:9px; color:#b6c4b7; }.achievement-card p { font-size:11px; line-height:1.7; color:#c4d4ce; margin:8px 0; }.achievement-card label { display:grid; gap:5px; color:#bcd5c4; font-size:10px; }.achievement-card progress { width:100%; height:8px; accent-color:#b7cc84; }
+@media (max-width:900px) {
+  .hud-top { grid-template-columns:98px minmax(120px,1fr) 166px; }
+  .hud-actions .readable-menu { width:112px; min-width:112px; }
+  .quick-slot.achievement-slot { min-width:53px; grid-template-columns:18px 1fr; }.achievement-slot > b { display:block; font-size:9px; }
+}
+@media (max-width:620px) {
+  .hud-top { grid-template-columns:67px minmax(100px,1fr) 91px; }
+  .hud-actions { align-items:end; gap:4px; }
+  .hud-actions .readable-menu { width:91px; min-width:91px; height:31px; gap:4px; }.readable-menu b { font-size:9px; }
+  .guide-card { top:78px; }
+  /* Runtime measures the real minimap/quickbar rectangles, including collapsed maps. */
+  .life-onboarding { left:9px; bottom:177px; width:calc(100% - 18px); padding:8px; }.life-onboarding > b { font-size:11px; }
+  .minimap { bottom:52px; }
+  .quick-slot.achievement-slot { min-width:49px; padding:4px 2px; }.quick-slot.achievement-slot > span { font-size:15px; }
+}
 #economyAchievements progress { display: block; width: 100%; height: 7px; margin-top: 8px; accent-color: #bdd490; }
 @media (max-width: 480px) {
   .drawer { width: min(420px, 96%); }

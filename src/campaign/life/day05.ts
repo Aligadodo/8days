@@ -13,6 +13,14 @@ const pack: LifePack = {
   day: 5,
   outside: [
     {
+      id: "d05-life-orchard-path-leaves", title: "果园路边的干叶", kind: "gather",
+      position: p(1267,392), approach: { x: 1230, y: 381 },
+      baked: shape([[1254,386],[1269,381],[1280,392],[1267,402],[1255,397]]),
+      visual: { mount: "ground", layer: "ground", support: "果园赠果木箱西南侧土路上的黄褐落叶，轮廓与木箱和栅栏分开，站在土路收拢", depth: p(0,402).y },
+      description: "果园小路上积着树木自然落下的干叶。园主允许取一小份做植物纤维材料；不跨篱笆折枝，不取尚在树上的果子。等下一阵秋风积下干叶再来。",
+      emptyText: "这一簇干叶已整理过，果树和篱笆原样保留，等新的落叶积下来。", lootTable: "cloth", renewSeconds: 300,
+    },
+    {
       id: "d05-life-orchard-crate", title: "果园赠果木箱", kind: "container",
       position: p(1307,370), approach: { x: 1230, y: 381 },
       baked: shape([[1288,332],[1305,323],[1332,333],[1334,359],[1311,375],[1288,363]]),
@@ -101,12 +109,12 @@ const pack: LifePack = {
       emptyText: "你的共享纸份额已经取过，抽屉已推回；可以查看把手，不再重复领取。", lootTable: "paper",
     },
     {
-      id: "d05-life-desk-right-drawer", title: "寄信桌右侧回收纸抽屉", kind: "container",
+      id: "d05-life-desk-right-drawer", title: "寄信桌右侧回收纸抽屉", kind: "gather",
       position: p(1260,387), approach: p(1290,441),
       baked: shape([[1232,338],[1302,337],[1302,366],[1232,367]]),
       visual: { mount: "table", support: "寄信书桌右侧真实抽屉面，从桌右前方看；信盘与抽屉不合并为大矩形", depth: p(0,396).y },
-      description: "主人把允许回收的无字边角纸收在右抽屉。拉开取一份后推回，不回收写好的信件，也不读取别人的私人文字。",
-      emptyText: "这一份回收纸已经领走，抽屉重新合好。其他旅人的信件不属于可领物资。", lootTable: "paper",
+      description: "主人把允许回收的无字边角纸定期收进右抽屉。拉开取一小份后推回，等主人整理下一批再来；不回收写好的信件，也不读取别人的私人文字。",
+      emptyText: "这轮回收纸已经领走，抽屉重新合好，等主人整理下一批。其他旅人的信件不属于可领物资。", lootTable: "paper", renewSeconds: 420,
     },
   ],
 };

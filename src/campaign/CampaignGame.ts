@@ -18,6 +18,8 @@ import { createEconomy, economyView, useItem as useEconomyItem, sellItem as sell
 import { createLife, collectLife, lifeAvailable, type LifeState } from "./life/runtime";
 import { PetFollowers, type FollowingPet } from "./life/pets";
 import { collectSceneOccluders, drawWithOcclusion, isPointOccluded } from "./occlusion";
+import { SupplyOpportunityCache, supplyRoute, isKnownSupply, lifeHoverText, type OpportunityContext } from "./life/opportunities";
+import type { LifeNode } from "./life/schema";
 import {
   HazardDirector,
   DEATH_TIMING,
@@ -70,6 +72,8 @@ export class CampaignGame {
   private life: LifeState = createLife();
   private readonly followers = new PetFollowers();
   private pickups: {point:Point;age:number;count:number}[]=[];
+  private suppliesRouteActive=false;
+  private readonly suppliesCache=new SupplyOpportunityCache();
   private discoveryFlags = new Set<string>();
   private visitedRooms = new Set<string>();
   private roomExplored: Record<string, number[]> = {};
@@ -202,7 +206,8 @@ export class CampaignGame {
       discoveries: nodes.map(n => ({ id: n.id, title: n.title,
         location: this.pack?.outside.includes(n) ? "大地图" : this.pack?.room.name ?? "",
         description: this.discoveryFlags.has(n.id) ? n.result : n.description, done: this.discoveryFlags.has(n.id) })),
-      achievements: this.pack?.achievements.map(a => ({ ...a, done: earned.has(a.id) })) ?? [],
+      achievements: this.pack?.achievements.map(a => ({ ...a, done: earned.has(a.id),
+        current:a.requires.filter(id=>this.discoveryFlags.has(id)).length,target:a.requires.length })) ?? [],
       album: EXPLORATION_PACKS.map(pack => {
         const flags = pack.day === this.level.day ? this.discoveryFlags : new Set(this.save.levels[LEVELS[pack.day - 1].id]?.discoveries ?? []);
         const collectible = allDiscoveries(pack).filter(n => n.reward);
@@ -215,6 +220,55 @@ export class CampaignGame {
     if (this.paused || this.dead || !this.pack) return;
     const portal = this.entities.find(e => e.portal);
     if (portal) this.navigate(portal.approach, portal, true);
+  }
+  private lifePermitted(node:LifeNode) {
+    if(!node.sharedDiscovery)return true;
+    const source=allDiscoveries(this.pack).find(d=>d.id===node.sharedDiscovery);
+    if(!source)return false;
+    if(this.discoveryFlags.has(source.id))return true;
+    if((source.requires??[]).some(id=>!this.discoveryFlags.has(id)))return false;
+    return !source.sequence || source.sequence.every((id,index)=>this.discoveryHistory.slice(-source.sequence!.length)[index]===id);
+  }
+  private supplyDangerous=(point:Point)=>this.activeHazards.some(h=>this.phase(h)!=="safe" && inHazard(point,h.rect,14));
+  private opportunityContext():OpportunityContext {
+    return {nodes:this.lifeNodes,state:this.life,player:this.player,nav:this.nav,seen:point=>this.seen(point),
+      permitted:node=>this.lifePermitted(node),dangerous:this.supplyDangerous,
+      roomSuggestion:this.room?undefined:this.pack?.room.name};
+  }
+  private supplyResponse(ok:boolean,message:string) {
+    this.hooks.onToast(message);
+    if(!ok)this.hooks.onAudio({id:"interaction.blocked"});
+    return {ok,message};
+  }
+  /** User-requested guidance uses the exact authored stance and never reveals another scene or unknown object. */
+  focusLife(id:string) {
+    if(!this.started || this.paused || this.dead)return this.supplyResponse(false,"请先关闭背包并回到地图，再寻找物资。");
+    const node=this.lifeNodes.find(n=>n.id===id && n.kind!=="inspect" && n.lootTable);
+    if(!node)return this.supplyResponse(false,"这不是当前场景可收集的物资点。");
+    const context=this.opportunityContext();
+    if(!isKnownSupply(node,context))return this.supplyResponse(false,"先沿地面探索阴影边缘，尚未发现的物件不会提前定位。");
+    if(!this.lifePermitted(node))return this.supplyResponse(false,"先完成这件物体原本的调查条件，再来整理共享物资。");
+    if(!lifeAvailable(this.life,node))return this.supplyResponse(false,`${lifeHoverText(node,this.life).action}。${node.emptyText}`);
+    const route=supplyRoute(node,context);
+    if(!route.length)return this.supplyResponse(false,"这里暂时没有安全连通路线；先避开危险，或查看通道是否开放。");
+    const original=this.entities.find(e=>e.life?.id===node.id);
+    if(!original)return this.supplyResponse(false,"这处物资尚未准备好，请稍后再试。");
+    // Shared objects use their existing discovery action, at the life's explicitly authored safe stance.
+    const entity={...original,approach:{...node.approach}};
+    this.navigate(node.approach,entity,false);
+    this.path=route;this.focus=entity;this.destination={...node.approach};this.destinationAge=.65;
+    this.suppliesRouteActive=true;
+    this.hooks.onAudio({id:"nav.route.accept"});
+    return this.supplyResponse(true,`正在沿地面前往${node.title}，到达后会${node.kind==="container"?"打开整理":"收集一份"}；右键可取消。`);
+  }
+  findNearbySupply() {
+    if(!this.started || this.paused || this.dead)return this.supplyResponse(false,"请先关闭背包并回到地图，再寻找物资。");
+    const supplies=this.suppliesView();
+    return supplies.recommendations[0]?this.focusLife(supplies.recommendations[0].id):this.supplyResponse(false,supplies.reason);
+  }
+  private suppliesView() {
+    return this.suppliesCache.view(this.opportunityContext(),`${this.sceneRevision}:${this.level.day}:${this.room?.id??"outside"}`,
+      this.activeHazards.map(h=>`${h.id}:${this.phase(h)}:${h.rect.x},${h.rect.y},${h.rect.width},${h.rect.height}`).join(";"));
   }
   private switchRoom(room: RoomDefinition | null) {
     if (room) {
@@ -249,7 +303,7 @@ export class CampaignGame {
   }
   private interactDiscovery(entity: Entity) {
     const node = entity.discovery!;
-    if (distance(this.player, entity.approach) > 12) return;
+    if (distance(this.player, entity.life && !node.animal?node.approach:entity.approach) > 12) return;
     const before = earnedAchievements(this.pack, this.discoveryFlags);
     const result = settleDiscovery(node, allDiscoveries(this.pack), this.discoveryFlags, this.discoveryHistory);
     this.hooks.onToast(result.message, result.status === "new" ? "success" : "normal");
@@ -321,6 +375,9 @@ export class CampaignGame {
   private interactLife(entity:Entity) {
     const node=entity.life!;
     if(distance(this.player,node.approach)>12)return;
+    if(!this.lifePermitted(node) || node.sharedDiscovery && !this.discoveryFlags.has(node.sharedDiscovery)){
+      this.supplyResponse(false,"先完成这件物体原本的调查条件，再来整理共享物资。");return;
+    }
     const result=collectLife(this.life,this.economy,node);
     this.hooks.onToast(result.message,result.status==="new"?"success":"normal");
     this.hooks.onAudio({id:result.status==="new"?"life.collect":result.status==="inspect"?"ui.click.soft":"interaction.blocked"});
@@ -335,6 +392,7 @@ export class CampaignGame {
     const currentPuzzle = this.currentPuzzle();
     const access = this.accessMechanism(currentPuzzle?.id);
     return {
+      supplies:this.suppliesView(),
       economy:economyView(this.economy),
       life:{activeSeconds:this.life.activeSeconds,collected:this.lifeNodes.filter(n=>n.kind!=="inspect"&&!lifeAvailable(this.life,n)).length,
         available:this.lifeNodes.filter(n=>n.kind!=="inspect"&&lifeAvailable(this.life,n)).length,total:this.lifeNodes.length,
@@ -822,6 +880,7 @@ export class CampaignGame {
     );
   }
   private cancel() {
+    this.suppliesRouteActive=false;
     this.path = [];
     this.focus = null;
     this.pending = null;
@@ -960,6 +1019,10 @@ export class CampaignGame {
   }
   private blocked = (q: Point) =>
     this.activeHazards.some((h) => {
+      if(this.suppliesRouteActive && this.phase(h)!=="safe" && inHazard(q,h.rect,14)){
+        const center=hazardCenter(h);
+        return !inHazard(this.player,h.rect,14) || distance(q,center)<=distance(this.player,center)+.1;
+      }
       if (this.phase(h) !== "active" || !inHazard(q, h.rect, 9)) return false;
       // Only someone already inside the lethal footprint may escape; the safety margin
       // must not accidentally grant permission to walk into the hazard.
@@ -1017,6 +1080,7 @@ export class CampaignGame {
   }
   private interact(entity: Entity) {
     if(entity.life){
+      this.suppliesRouteActive=false;
       if(entity.discovery)this.interactDiscovery(entity);
       if(distance(this.player,entity.life.approach)>12){
         const collection=lifeEntity(entity.life);this.navigate(collection.approach,collection,false);
@@ -1174,6 +1238,12 @@ export class CampaignGame {
       return f.life > 0;
     });
     if (this.pending) {
+      if(this.suppliesRouteActive && this.pending.life && this.supplyDangerous(this.player)){
+        this.cancel();
+        this.hooks.onToast("附近出现危险预兆，已停下收集。请先离开危险范围，再来整理物资。","danger");
+      }
+    }
+    if (this.pending) {
       const beforeProgress = 1 - this.actionTime / this.actionDuration;
       this.actionTime -= delta;
       if (this.pending.mechanism?.kind === "breakable")
@@ -1218,7 +1288,7 @@ export class CampaignGame {
           this.player,
           this.destination,
           this.blocked,
-          10,
+          this.suppliesRouteActive?0:10,
         );
         if (route.length) {
           this.path = route;
@@ -1528,6 +1598,7 @@ export class CampaignGame {
       ctx.globalAlpha = 1;
     }
     this.drawMinimap();
+    this.drawLifeHover();
     if (new URLSearchParams(location.search).has("debug"))
       this.canvas.dataset.state = JSON.stringify({
         level: this.level.id,
@@ -1624,6 +1695,24 @@ export class CampaignGame {
         ctx.restore();
       }
     }
+  }
+  private drawLifeHover() {
+    const node=this.hovered?.life;
+    if(!node || !this.pointer || this.paused || this.dead)return;
+    const ctx=this.ctx,rect=this.canvas.getBoundingClientRect();
+    const info=lifeHoverText(node,this.life,this.lifePermitted(node));
+    ctx.save();ctx.font="12px system-ui";
+    const trim=(text:string,max:number)=>{
+      let value=text;while(value.length>1 && ctx.measureText(value).width>max)value=value.slice(0,-1);
+      return value===text?value:`${value}…`;
+    };
+    const title=trim(`${info.action} · ${node.title}`,270),detail=trim(info.loot,270);
+    const width=Math.min(290,Math.max(ctx.measureText(title).width,ctx.measureText(detail).width)+20),height=49;
+    const x=clamp((this.pointer.x-rect.left)/rect.width*this.width+13,8,Math.max(8,this.width-width-8));
+    const y=clamp((this.pointer.y-rect.top)/rect.height*this.height+15,92,Math.max(92,this.height-height-10));
+    ctx.fillStyle="#20343bed";ctx.fillRect(Math.round(x),Math.round(y),width,height);
+    ctx.strokeStyle="#b9c5a66b";ctx.lineWidth=1;ctx.strokeRect(Math.round(x)+.5,Math.round(y)+.5,width-1,height-1);
+    ctx.fillStyle="#fff2cc";ctx.fillText(title,x+10,y+19);ctx.fillStyle="#c5d8c7";ctx.fillText(detail,x+10,y+37);ctx.restore();
   }
   private drawFollower(pet:FollowingPet) {
     const ctx=this.ctx,height=pet.species==="mouse"?19:pet.species==="dog"?32:29;

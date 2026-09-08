@@ -146,7 +146,7 @@ test("shared large object keeps its original inspect outside each precise box; o
   const common={kind:"container",lootTable:"salvage",position:point,approach:point,visual:{mount:"ground",depth:400,support:"test cart support"},description:"公用余料",emptyText:"已领取"};
   const left={...common,id:"d01-life-left",baked:rectangle(680,320,15,20)},right={...common,id:"d01-life-right",baked:rectangle(705,320,15,20)};
   const original={id:"old-cart",type:"discovery",x:700,y:360,approach:point,baked:rectangle(670,300,70,50),visual:common.visual,atlas:"world-props",frame:0,height:50,
-    name:"车",discovery:{id:"old-cart",kind:"inspect",description:"观察",result:"观察"},life:left};
+    name:"车",discovery:{id:"old-cart",kind:"inspect",approach:point,description:"观察",result:"观察"},life:left};
   game.entities=[original,lifeEntity(right)];game.player={...point};
   const originalHit=game.hit({x:675,y:315});assert.equal(originalHit.id,"old-cart");assert.equal(originalHit.life,undefined);
   game.interact(originalHit);assert.equal(game.life.containers.length,0);
